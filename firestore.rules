@@ -51,9 +51,25 @@ service cloud.firestore {
         me() == resource.data.hostUid ||
         me() == resource.data.guestUid ||
         (resource.data.guestUid == null && request.resource.data.guestUid == me()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guestUid', 'guestName', 'status']))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guestUid', 'guestName', 'status', 'game']))
       );
       allow delete: if signedIn() && me() == resource.data.hostUid;
+
+      function isSeated() {
+        let s = getAfter(/databases/$(database)/documents/sessions/$(id)).data;
+        return me() == s.hostUid || me() == s.guestUid;
+      }
+
+      // Each player's deck + hand are hidden from the opponent.
+      match /hands/{uid} {
+        allow read, write: if signedIn() && me() == uid;
+      }
+
+      // Event log: anyone with the link can read; only seated players can append, as themselves.
+      match /log/{entryId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && isSeated() && request.resource.data.uid == me();
+      }
     }
   }
 }

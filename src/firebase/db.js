@@ -6,11 +6,12 @@
 //   friendships/{uidA_uidB}     { members: [uidA, uidB], names: {uid: name}, requestedBy, status: 'pending'|'accepted', createdAt }
 //   sessions/{sessionId}        { hostUid, hostName, guestUid, guestName, status: 'waiting'|'active', createdAt }
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query,
+  addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query,
   runTransaction, serverTimestamp, setDoc, updateDoc, where, limit, writeBatch,
 } from 'firebase/firestore';
 import { db } from './config.js';
 import { addArtDeletesToBatch, addArtToBatch, forgetArt } from './cardArt.js';
+import { newGame, newPlayer } from '../game/engine.js';
 
 export const displayNameOf = (user) => user.displayName || user.email?.split('@')[0] || 'Player';
 
@@ -133,6 +134,7 @@ export async function createSession(user) {
     guestUid: null,
     guestName: null,
     status: 'waiting',
+    game: newGame(user.uid, displayNameOf(user)),
     createdAt: serverTimestamp(),
   });
   return ref.id;
@@ -156,9 +158,19 @@ export function joinSession(id, user) {
     if (s.hostUid === user.uid) return 'host';
     if (s.guestUid === user.uid) return 'guest';
     if (s.guestUid) return 'full';
-    tx.update(ref, { guestUid: user.uid, guestName: displayNameOf(user), status: 'active' });
+    const name = displayNameOf(user);
+    tx.update(ref, {
+      guestUid: user.uid,
+      guestName: name,
+      status: 'active',
+      [`game.players.${user.uid}`]: newPlayer(name),
+      [`game.board.${user.uid}`]: {},
+      [`game.discard.${user.uid}`]: [],
+    });
+    tx.set(doc(collection(db, 'sessions', id, 'log')), {
+      text: `${name} joined the arena.`, kind: 'info', uid: user.uid, at: Date.now(),
+    });
     return 'guest';
   });
 }
 
-export const sessionExists = async (id) => (await getDoc(doc(db, 'sessions', id))).exists();

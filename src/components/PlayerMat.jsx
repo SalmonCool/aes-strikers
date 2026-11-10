@@ -1,38 +1,47 @@
-// One player's half of the board. Layout follows the reference playmat:
-// 9-column grid (two narrow spacer columns: 3 and 6), 3 rows.
-export const ZONES = [
-  { id: 'spatial', label: 'Spatial', col: 7, row: 1 },
-  { id: 'aether', label: 'Aether', col: 8, row: 1 },
-  { id: 'idol', label: 'Idol', col: 9, row: 1 },
+import Card from './Card.jsx';
+import { ZONES } from '../game/zones.js';
 
-  { id: 'latent-1', label: 'Latent', col: 1, row: 2 },
-  { id: 'latent-2', label: 'Latent', col: 5, row: 2 },
-  { id: 'weapon', label: 'Weapon', col: 7, row: 2 },
-  { id: 'shield', label: 'Shield', col: 8, row: 2 },
-  { id: 'body-armor', label: 'Body Armor', col: 9, row: 2 },
-
-  { id: 'discard', label: 'Discard', col: 1, row: 3 },
-  { id: 'deck', label: 'Deck', col: 2, row: 3 },
-  { id: 'ability-1', label: 'Ability Slot', col: 4, row: 3 },
-  { id: 'ability-2', label: 'Ability Slot', col: 5, row: 3 },
-  { id: 'incantation', label: 'Incantation', col: 7, row: 3, span: 3 },
-];
-
-export default function PlayerMat({ side, playerName }) {
+// One player's half of the board.
+// cards: { zoneId: card }  highlight: Set of zoneIds that are clickable right now
+export default function PlayerMat({ side, playerName, cards = {}, deckCount = 0, discard = [], highlight, highlightKind, onZoneClick }) {
   return (
     <section className={`player-mat ${side}`} aria-label={`${playerName}'s side`}>
       <div className="mat-watermark" aria-hidden="true">Strike!</div>
       <div className="mat-player">{playerName}</div>
-      {ZONES.map((z) => (
-        <div
-          key={z.id}
-          className="zone"
-          data-zone={z.id}
-          style={{ gridColumn: z.span ? `${z.col} / span ${z.span}` : z.col, gridRow: z.row }}
-        >
-          <span className="zone-label">{z.label}</span>
-        </div>
-      ))}
+      {ZONES.map((z) => {
+        const card = cards[z.id];
+        const lit = highlight?.has(z.id);
+        let content;
+        if (z.id === 'deck') {
+          content = deckCount > 0
+            ? <div className="card-back"><span>{deckCount}</span></div>
+            : <span className="zone-label">{z.label}</span>;
+        } else if (z.id === 'discard') {
+          const top = discard[discard.length - 1];
+          content = top
+            ? <><div className="zone-card"><Card card={top} /></div><span className="zone-count">{discard.length}</span></>
+            : <span className="zone-label">{z.label}</span>;
+        } else {
+          content = card
+            ? <div className="zone-card"><Card card={card} /></div>
+            : <span className="zone-label">{z.label}</span>;
+        }
+        return (
+          <div
+            key={z.id}
+            className={`zone ${card ? 'filled' : ''} ${lit ? `lit ${highlightKind || ''}` : ''}`}
+            data-zone={z.id}
+            style={{ gridColumn: z.span ? `${z.col} / span ${z.span}` : z.col, gridRow: z.row }}
+            onClick={lit ? () => onZoneClick(z.id) : undefined}
+            role={lit ? 'button' : undefined}
+            tabIndex={lit ? 0 : undefined}
+            onKeyDown={lit ? (e) => (e.key === 'Enter' || e.key === ' ') && onZoneClick(z.id) : undefined}
+            aria-label={lit ? `${z.label}${card ? `: ${card.title}` : ''}` : undefined}
+          >
+            {content}
+          </div>
+        );
+      })}
     </section>
   );
 }
