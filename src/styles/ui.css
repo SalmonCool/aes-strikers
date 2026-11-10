@@ -227,3 +227,77 @@
 .friend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .friend-name small { display: block; color: rgba(255, 255, 255, 0.5); }
 .friend-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* ---------- Import + format guide ---------- */
+code {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.85em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(0, 229, 229, 0.1);
+  color: #7ff7ff;
+}
+.link-btn { background: none; border: none; padding: 0; color: var(--teal); font: inherit; cursor: pointer; text-decoration: underline; }
+.import-hint { margin: 0 0 12px; color: rgba(255, 255, 255, 0.7); }
+.import-input { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.import-text { min-height: 160px; font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; }
+.import-summary { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 10px; font-size: 0.9rem; color: rgba(255, 255, 255, 0.7); }
+.import-summary .ok { color: var(--teal); font-weight: 700; }
+.import-summary .bad { color: #ff9aa8; font-weight: 700; }
+.import-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.import-list li { display: flex; gap: 10px; padding: 8px 12px; border-radius: 10px; background: rgba(0, 0, 0, 0.3); }
+.import-list li.bad { background: rgba(255, 60, 90, 0.08); }
+.import-mark { font-weight: 700; color: var(--teal); }
+.import-list li.bad .import-mark { color: #ff5a7a; }
+.import-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.import-name small { color: rgba(255, 255, 255, 0.55); }
+.import-name .import-err { color: #ff9aa8; }
+.import-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 0.9rem; }
+.import-bar { flex: 1; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.import-bar div { height: 100%; background: linear-gradient(90deg, var(--teal), #3d8bff); transition: width 0.2s; }
+.import-result { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.import-warnings { margin: 0; padding-left: 20px; color: #ffcf8a; font-size: 0.85rem; }
+
+.format-guide { max-width: 960px; }
+.guide-head, .guide-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.guide-head h2 { margin: 0; }
+.guide-section { margin-top: 22px; }
+.guide-section h3 { margin: 0 0 8px; font-family: var(--font-display); font-size: 1rem; letter-spacing: 0.08em; }
+.guide-section p { margin: 0 0 10px; color: rgba(255, 255, 255, 0.75); line-height: 1.55; }
+.guide-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.guide-table-wrap { overflow-x: auto; }
+.guide-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.guide-table th, .guide-table td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.guide-table th { font-family: var(--font-display); font-weight: 500; color: var(--teal); letter-spacing: 0.06em; white-space: nowrap; }
+.guide-table td:first-child { white-space: nowrap; }
+.guide-table .muted { color: rgba(255, 255, 255, 0.5); }
+.guide-code {
+  margin: 8px 0 0;
+  padding: 14px;
+  max-height: 300px;
+  overflow: auto;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: rgba(255, 255, 255, 0.85);
+}
+.guide-ai {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 229, 229, 0.35);
+  background: rgba(0, 229, 229, 0.05);
+}
+.guide-ai summary { cursor: pointer; color: var(--teal); font-size: 0.9rem; }

@@ -6,6 +6,8 @@ import {
 } from '../firebase/db.js';
 import { MAX_ART_UPLOAD_BYTES, compressImage } from '../firebase/cardArt.js';
 import Card from '../components/Card.jsx';
+import ImportCardsModal from '../components/deck/ImportCardsModal.jsx';
+import FormatGuideModal from '../components/deck/FormatGuideModal.jsx';
 
 
 function Select({ id, label, value, onChange, options }) {
@@ -125,6 +127,8 @@ export default function DeckManager() {
   const [cards, setCards] = useState(null);
   const [filter, setFilter] = useState('All');
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [guide, setGuide] = useState(false);
 
   useEffect(() => watchCards(user.uid, setCards), [user.uid]);
 
@@ -144,6 +148,8 @@ export default function DeckManager() {
         <section className="panel">
           <div className="deck-toolbar">
             <button className="ui-btn primary" onClick={() => setAdding(true)}>+ Add Card</button>
+            <button className="ui-btn" onClick={() => setImporting(true)}>Import JSON</button>
+            <button className="ui-btn" onClick={() => setGuide(true)}>Format Guide</button>
             <select className="ui-select" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter by card type">
               <option>All</option>
               {CARD_TYPES.map((t) => <option key={t}>{t}</option>)}
@@ -170,6 +176,10 @@ export default function DeckManager() {
       </div>
 
       {adding && <AddCardModal uid={user.uid} onClose={() => setAdding(false)} />}
+      {importing && !guide && (
+        <ImportCardsModal uid={user.uid} onClose={() => setImporting(false)} onOpenGuide={() => setGuide(true)} />
+      )}
+      {guide && <FormatGuideModal onClose={() => setGuide(false)} />}
     </main>
   );
 }
