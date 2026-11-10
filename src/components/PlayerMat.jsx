@@ -1,44 +1,94 @@
 import Card from './Card.jsx';
-import { ZONES } from '../game/zones.js';
+import { MAX_INCANTATIONS, ZONES } from '../game/zones.js';
+
+const CardSlot = ({ card, className = '' }) => (
+  <div className={`zone-card ${className}`}><Card card={card} /></div>
+);
 
 // One player's half of the board.
-// cards: { zoneId: card }  highlight: Set of zoneIds that are clickable right now
-export default function PlayerMat({ side, playerName, cards = {}, deckCount = 0, discard = [], highlight, highlightKind, onZoneClick }) {
+//   board:        { zoneId: card | { faceDown } , incantation: card[] }
+//   latentCards:  (own side only) the real cards behind face-down Latent slots
+//   tokens:       { aether, idol }
+//   clashCard:    card shown in the Strike! area (the attack or counter just played)
+//   highlight:    Map zoneId -> 'place' | 'target' | 'reveal' | 'use' | 'selected'
+export default function PlayerMat({
+  side, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [],
+  stunZone, clashCard, turnNo, highlight, onZoneClick,
+}) {
   return (
     <section className={`player-mat ${side}`} aria-label={`${playerName}'s side`}>
       <div className="mat-watermark" aria-hidden="true">Strike!</div>
       <div className="mat-player">{playerName}</div>
       {ZONES.map((z) => {
-        const card = cards[z.id];
-        const lit = highlight?.has(z.id);
-        let content;
-        if (z.id === 'deck') {
-          content = deckCount > 0
-            ? <div className="card-back"><span>{deckCount}</span></div>
-            : <span className="zone-label">{z.label}</span>;
+        const item = board[z.id];
+        const lit = highlight?.get(z.id);
+        const label = <span className="zone-label">{z.label}</span>;
+        let content = label;
+        let filled = false;
+
+        if (z.id === 'aether' || z.id === 'idol') {
+          const value = z.id === 'aether' ? tokens.aether : tokens.idol;
+          if (value) {
+            filled = true;
+            content = (
+              <div className={`token ${z.id}`}>
+                <span className="token-value">{value}</span>
+                <span className="token-kind">{z.label}</span>
+              </div>
+            );
+          }
+        } else if (z.id === 'deck') {
+          if (deckCount > 0) content = <div className="card-back"><span>{deckCount}</span></div>;
         } else if (z.id === 'discard') {
           const top = discard[discard.length - 1];
-          content = top
-            ? <><div className="zone-card"><Card card={top} /></div><span className="zone-count">{discard.length}</span></>
-            : <span className="zone-label">{z.label}</span>;
-        } else {
-          content = card
-            ? <div className="zone-card"><Card card={card} /></div>
-            : <span className="zone-label">{z.label}</span>;
+          if (top) content = <><CardSlot card={top} /><span className="zone-count">{discard.length}</span></>;
+        } else if (z.id === 'strike') {
+          if (clashCard) {
+            filled = true;
+            content = <CardSlot card={clashCard} className="clash" />;
+          }
+        } else if (z.id === 'incantation') {
+          const list = board.incantation || [];
+          if (list.length) {
+            filled = true;
+            const awake = list.length === MAX_INCANTATIONS;
+            content = (
+              <>
+                <div className="incantation-row">{list.map((c) => <CardSlot key={c.iid} card={c} className={awake ? '' : 'dormant'} />)}</div>
+                <span className={`zone-count ${awake ? 'awake' : ''}`}>{awake ? 'Awakened' : `Dormant ${list.length}/${MAX_INCANTATIONS}`}</span>
+              </>
+            );
+          }
+        } else if (item?.faceDown) {
+          filled = true;
+          const hidden = latentCards[z.id];
+          content = hidden
+            ? <><CardSlot card={hidden} className="face-down-own" /><span className="zone-count">Face-down</span></>
+            : <div className="card-back" />;
+        } else if (item) {
+          filled = true;
+          content = (
+            <>
+              <CardSlot card={item} />
+              {item.revealed && <span className="zone-count">{item.usedTurn === turnNo ? 'Used this turn' : 'Revealed'}</span>}
+            </>
+          );
         }
+
         return (
           <div
             key={z.id}
-            className={`zone ${card ? 'filled' : ''} ${lit ? `lit ${highlightKind || ''}` : ''}`}
+            className={`zone zone-${z.id} ${filled ? 'filled' : ''} ${lit ? `lit ${lit}` : ''}`}
             data-zone={z.id}
             style={{ gridColumn: z.span ? `${z.col} / span ${z.span}` : z.col, gridRow: z.row }}
             onClick={lit ? () => onZoneClick(z.id) : undefined}
             role={lit ? 'button' : undefined}
             tabIndex={lit ? 0 : undefined}
             onKeyDown={lit ? (e) => (e.key === 'Enter' || e.key === ' ') && onZoneClick(z.id) : undefined}
-            aria-label={lit ? `${z.label}${card ? `: ${card.title}` : ''}` : undefined}
+            aria-label={lit ? `${z.label}${item?.title ? `: ${item.title}` : ''}` : undefined}
           >
             {content}
+            {stunZone === z.id && <span className="zone-stunned">Stunned</span>}
           </div>
         );
       })}

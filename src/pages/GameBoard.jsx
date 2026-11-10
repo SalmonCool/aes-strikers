@@ -3,16 +3,18 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { joinSession, watchSession } from '../firebase/db.js';
 import {
-  declareAttack, declareCounter, dealOpeningHand, drawForTurn, endPhase, opponentOf, placeCard,
-  playCounter, resolveWithoutCounter, setupReady, startReady, watchHand, watchLog,
+  affinityOk, applyStatus, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
+  endPhase, isSoulCard, opponentOf, placeCard, playCounter, removeStatus, resolveWithoutCounter, revealLatent,
+  rollDieForCard, setupReady, soulInHand, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
-import { PLAYABLE_ZONES } from '../game/zones.js';
+import { LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
 import PlayerMat from '../components/PlayerMat.jsx';
 import PhaseTracker from '../components/game/PhaseTracker.jsx';
 import EventLog from '../components/game/EventLog.jsx';
 import Hand from '../components/game/Hand.jsx';
 import CounterPrompt from '../components/game/CounterPrompt.jsx';
 import SetupPanel from '../components/game/SetupPanel.jsx';
+import EffectsPanel from '../components/game/EffectsPanel.jsx';
 import './GameBoard.css';
 
 function InviteButton({ sessionId }) {
@@ -56,9 +58,9 @@ export default function GameBoard() {
   const [session, setSession] = useState(undefined); // undefined = loading, null = not found
   const [role, setRole] = useState(null); // 'host' | 'guest' | 'full'
   const [error, setError] = useState('');
-  const [hand, setHand] = useState({ deck: [], hand: [], dealt: false });
+  const [hand, setHand] = useState({ deck: [], hand: [], dealt: false, latent: {} });
   const [log, setLog] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [sel, setSel] = useState(null); // null | { from: 'hand', iid } | { from: 'board', zone }
   const [toast, setToast] = useState('');
 
   // ----- Join + subscriptions -----
@@ -103,7 +105,7 @@ export default function GameBoard() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(''), 3500);
+    const t = setTimeout(() => setToast(''), 4000);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -113,53 +115,94 @@ export default function GameBoard() {
   useEffect(() => { if (needsDeal) run(dealOpeningHand(sessionId, me)); }, [needsDeal, sessionId, me, run]);
   useEffect(() => { if (needsDraw) run(drawForTurn(sessionId, me)); }, [needsDraw, sessionId, me, run]);
 
-  // Clear selection if the card left the hand
-  const selectedCard = hand.hand.find((c) => c.iid === selected) || null;
-
-  // ----- What can be clicked right now -----
+  // ----- Derived state -----
   const opp = game ? opponentOf(game, me) : null;
+  const player = game?.players[me];
+  const myBoard = useMemo(() => game?.board[me] || {}, [game, me]);
   const myTurn = game?.turn === me;
   const attack = game?.attack || null;
-  const amDefender = attack?.defender === me;
-  const countering = attack?.status === 'countering' && amDefender;
+  const countering = attack?.status === 'countering' && attack.defender === me;
+  const inMyStrike = game?.phase === 'strike' && myTurn && !attack;
+  const canReveal = inMyStrike || countering;
 
-  const mode = useMemo(() => {
-    if (!game || !selectedCard || game.phase === 'over') return null;
-    if (game.phase === 'start' && !game.players[me]?.ready && selectedCard.cardType === 'Body Armor') return 'place';
-    if (game.phase === 'equip' && myTurn && !attack) return 'place';
-    if (game.phase === 'strike' && myTurn && !attack && selectedCard.cardType === 'Attack') return 'target';
-    return null;
-  }, [game, selectedCard, me, myTurn, attack]);
+  const selectedCard = !sel ? null
+    : sel.from === 'hand' ? hand.hand.find((c) => c.iid === sel.iid) || null
+      : (myBoard[sel.zone] && !myBoard[sel.zone].faceDown ? myBoard[sel.zone] : null);
+
+  // Can this hand card be paid for and played by this player at all?
+  const castable = useCallback(
+    (c) => !isSoulCard(c) && affinityOk(player, c) && canAfford(hand.hand, c),
+    [player, hand.hand],
+  );
+
+  // Is a revealed Latent card on my board usable right now?
+  const usableLatent = useCallback((zone) => {
+    const c = myBoard[zone];
+    if (!c || c.faceDown || !c.revealed || c.usedTurn === game?.turnNo) return false;
+    if (inMyStrike) return c.cardType === 'Attack';
+    if (countering) return c.cardType === 'Attack' || c.cardType === 'Defend';
+    return false;
+  }, [myBoard, game?.turnNo, inMyStrike, countering]);
+
+  const canPlaceNow = game && (
+    (game.phase === 'start' && !player?.ready) ||
+    (game.phase === 'equip' && myTurn && !attack)
+  );
+
+  const placeZones = useMemo(() => {
+    if (!game || sel?.from !== 'hand' || !selectedCard || !canPlaceNow || !castable(selectedCard)) return [];
+    return validZonesFor(game, me, selectedCard);
+  }, [game, sel, selectedCard, canPlaceNow, castable, me]);
+
+  const selectionUsable = selectedCard && (sel.from === 'board' ? usableLatent(sel.zone) : castable(selectedCard) && isCastCard(selectedCard));
+  const targeting = inMyStrike && selectionUsable && selectedCard.cardType === 'Attack';
+  const counterReady = countering && selectionUsable && (selectedCard.cardType === 'Attack' || selectedCard.cardType === 'Defend');
 
   const myHighlight = useMemo(() => {
-    if (mode !== 'place') return null;
-    const board = game.board[me] || {};
-    const zones = game.phase === 'start' ? ['body-armor'] : PLAYABLE_ZONES;
-    return new Set(zones.filter((z) => !board[z]));
-  }, [mode, game, me]);
+    const m = new Map(placeZones.map((z) => [z, 'place']));
+    LATENT_ZONES.forEach((z) => {
+      const c = myBoard[z];
+      if (!c) return;
+      if (c.faceDown && canReveal) m.set(z, 'reveal');
+      else if (sel?.from === 'board' && sel.zone === z) m.set(z, 'selected');
+      else if (usableLatent(z)) m.set(z, 'use');
+    });
+    return m;
+  }, [placeZones, myBoard, canReveal, sel, usableLatent]);
 
   const oppHighlight = useMemo(() => {
-    if (mode !== 'target' || !opp) return null;
+    if (!targeting || !opp) return null;
     const board = game.board[opp] || {};
-    return new Set(Object.keys(board).filter((z) => board[z]?.health > 0));
-  }, [mode, game, opp]);
+    return new Map(
+      Object.keys(board)
+        .filter((z) => board[z] && !Array.isArray(board[z]) && !board[z].faceDown && board[z].health > 0)
+        .map((z) => [z, 'target']),
+    );
+  }, [targeting, game, opp]);
 
   const isPlayable = useCallback((c) => {
-    if (!game) return false;
-    if (countering) return c.cardType === 'Attack';
-    if (game.phase === 'start') return !game.players[me]?.ready && c.cardType === 'Body Armor';
-    if (game.phase === 'equip') return myTurn && !attack;
-    if (game.phase === 'strike') return myTurn && !attack && c.cardType === 'Attack';
+    if (!game || !castable(c)) return false;
+    if (countering) return isCastCard(c);
+    if (game.phase === 'start' || game.phase === 'equip') return canPlaceNow && validZonesFor(game, me, c).length > 0;
+    if (inMyStrike) return isCastCard(c) && c.cardType === 'Attack';
     return false;
-  }, [game, countering, me, myTurn, attack]);
+  }, [game, castable, countering, canPlaceNow, me, inMyStrike]);
 
-  const onPlace = (zone) => {
-    run(placeCard(sessionId, me, selected, zone));
-    setSelected(null);
+  const source = sel?.from === 'board' ? { kind: 'latent', zone: sel.zone } : sel ? { kind: 'hand', iid: sel.iid } : null;
+
+  const onMyZone = (zone) => {
+    if (placeZones.includes(zone)) {
+      run(placeCard(sessionId, me, sel.iid, zone));
+      setSel(null);
+      return;
+    }
+    const c = myBoard[zone];
+    if (c?.faceDown && canReveal) run(revealLatent(sessionId, me, zone));
+    else if (usableLatent(zone)) setSel(sel?.from === 'board' && sel.zone === zone ? null : { from: 'board', zone });
   };
   const onTarget = (target) => {
-    run(declareAttack(sessionId, me, selected, target));
-    setSelected(null);
+    run(declareAttack(sessionId, me, source, target));
+    setSel(null);
   };
 
   const onCounterTimeout = useCallback(
@@ -167,15 +210,41 @@ export default function GameBoard() {
     [attack, sessionId, me, run],
   );
 
+  const effectActions = useMemo(() => ({
+    apply: (target, id, zone) => applyStatus(sessionId, me, target, id, zone),
+    remove: (target, id) => removeStatus(sessionId, me, target, id),
+    detonate: (target, id) => detonateStatus(sessionId, me, target, id),
+    rollDie: () => rollDieForCard(sessionId, me),
+  }), [sessionId, me]);
+
   // ----- Render guards -----
   if (error) return <Notice title="Arena Unavailable" text={error} />;
   if (session === null) return <Notice title="Arena Unavailable" text="This arena does not exist." />;
   if (role === 'full') return <Notice title="Arena Full" text="This arena already has two players." />;
   if (!session || !role) return <div className="screen-loading">Entering the arena…</div>;
-  if (!game) return <Notice title="Outdated Arena" text="This arena was created before gameplay was added. Open a new one from the lobby." />;
+  if (!game || game.turnNo === undefined) {
+    return <Notice title="Outdated Arena" text="This arena was created with older rules. Open a new one from the lobby." />;
+  }
 
   const names = Object.fromEntries(Object.entries(game.players).map(([u, p]) => [u, p.name]));
   const oppName = opp ? names[opp] : 'Awaiting challenger';
+  const clashFor = (uid) => {
+    const c = game.clash;
+    if (attack?.by === uid) return attack.card;
+    if (!c) return null;
+    return c.by === uid ? c.attackCard : c.defender === uid ? c.counterCard : null;
+  };
+
+  // Why a selected card can't be played (if that's the case)
+  let selectionHint = '';
+  if (selectedCard && sel.from === 'hand') {
+    if (isSoulCard(selectedCard)) selectionHint = 'SOUL cards stay in your hand and are spent automatically to pay for other cards.';
+    else if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" is ${selectedCard.aetherType}/${selectedCard.idolType} — it doesn't match your ${player.aetherType}/${player.idolType} tokens.`;
+    else if (!canAfford(hand.hand, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${selectedCard.soulCost} SOUL. You have ${soulInHand(hand.hand, selectedCard.iid)}.`;
+    else if (canPlaceNow && isCastCard(selectedCard)) selectionHint = `${selectedCard.cardType} cards are cast during STRIKE! or COUNTER!, not equipped.`;
+    else if (canPlaceNow && placeZones.length === 0) selectionHint = `No open zone for "${selectedCard.title}".`;
+    else if (canPlaceNow && isLatentCard(selectedCard)) selectionHint = 'Latent card: place it face-down in a glowing Latent slot. SOUL is paid now.';
+  }
 
   // ----- Action bar: hint + buttons for the current situation -----
   let hint = '';
@@ -183,35 +252,35 @@ export default function GameBoard() {
   if (game.phase === 'over') {
     hint = game.winner === me ? 'Victory! You won the match.' : `${names[game.winner]} won the match.`;
   } else if (game.phase === 'setup') {
-    hint = game.players[me]?.ready
+    hint = player?.ready
       ? opp ? `Waiting for ${oppName} to finish setup…` : 'Waiting for an opponent to join. Share the invite link!'
-      : 'Choose your Idol and Aether cards.';
+      : 'Choose your deck and tokens.';
   } else if (game.phase === 'start') {
-    if (game.players[me]?.ready) hint = `Waiting for ${oppName} to ready up…`;
+    if (player?.ready) hint = `Waiting for ${oppName} to ready up…`;
     else {
       hint = 'Optional: select a Body Armor card from your hand and place it, then ready up.';
       buttons.push(<button key="ready" className="ui-btn primary" onClick={() => run(startReady(sessionId, me))}>Ready to Begin</button>);
     }
   } else if (countering) {
-    hint = 'COUNTER! — select an Attack card from your hand to counter with.';
-    if (selectedCard?.cardType === 'Attack') {
+    hint = 'COUNTER! — select an Attack or Defend card from your hand, or reveal / use a Latent card.';
+    if (counterReady) {
       buttons.push(
-        <button key="c" className="ui-btn primary" onClick={() => { run(playCounter(sessionId, me, selected)); setSelected(null); }}>
+        <button key="c" className="ui-btn primary" onClick={() => { run(playCounter(sessionId, me, source)); setSel(null); }}>
           Counter with “{selectedCard.title}”
         </button>,
       );
     }
-    buttons.push(<button key="none" className="ui-btn" onClick={() => run(resolveWithoutCounter(sessionId, me, attack.id, 'pass'))}>No counter card</button>);
+    buttons.push(<button key="none" className="ui-btn" onClick={() => run(resolveWithoutCounter(sessionId, me, attack.id, 'pass'))}>No counter</button>);
   } else if (attack) {
     hint = attack.status === 'countering' ? `${names[attack.defender]} declared COUNTER! and is choosing a card…` : '';
   } else if (myTurn && game.phase === 'equip') {
-    hint = 'Equip phase: select a card in your hand, then click an empty zone to equip it.';
+    hint = 'Equip phase: select a card, then click a glowing zone. Latent cards go face-down.';
     buttons.push(<button key="next" className="ui-btn primary" onClick={() => run(endPhase(sessionId, me))}>Go to STRIKE!</button>);
-  } else if (myTurn && game.phase === 'strike') {
-    hint = mode === 'target'
+  } else if (inMyStrike) {
+    hint = targeting
       ? 'Choose a target: a glowing enemy card, or strike the player directly.'
-      : 'STRIKE! phase: select an Attack card from your hand to attack.';
-    if (mode === 'target') {
+      : 'STRIKE! phase: select an Attack card or a revealed Latent card. Click a face-down Latent card to reveal it.';
+    if (targeting) {
       buttons.push(<button key="face" className="ui-btn primary" onClick={() => onTarget({ kind: 'player' })}>Strike {oppName} directly</button>);
     }
     buttons.push(<button key="end" className="ui-btn" onClick={() => run(endPhase(sessionId, me))}>End Turn</button>);
@@ -235,33 +304,50 @@ export default function GameBoard() {
           <PlayerMat
             side="opponent"
             playerName={oppName}
-            cards={opp ? game.board[opp] : {}}
+            board={opp ? game.board[opp] : {}}
+            tokens={opp ? { aether: game.players[opp].aetherType, idol: game.players[opp].idolType } : {}}
             deckCount={opp ? game.players[opp].deckCount : 0}
             discard={opp ? game.discard[opp] : []}
+            stunZone={opp ? game.players[opp].status?.stun?.zone : null}
+            clashCard={opp ? clashFor(opp) : null}
+            turnNo={game.turnNo}
             highlight={oppHighlight}
-            highlightKind="target"
             onZoneClick={(zone) => onTarget({ kind: 'card', zone })}
           />
           <div className="board-divider" aria-hidden="true"><span /></div>
           <PlayerMat
             side="self"
             playerName={names[me]}
-            cards={game.board[me]}
+            board={myBoard}
+            latentCards={hand.latent}
+            tokens={{ aether: player?.aetherType, idol: player?.idolType }}
             deckCount={hand.deck.length}
             discard={game.discard[me]}
+            stunZone={player?.status?.stun?.zone}
+            clashCard={clashFor(me)}
+            turnNo={game.turnNo}
             highlight={myHighlight}
-            onZoneClick={onPlace}
+            onZoneClick={onMyZone}
           />
         </div>
 
         <div className="action-bar">
-          <p className="action-hint">{hint}</p>
+          <span className="soul-count" title="SOUL cards in your hand. Each pays 1 SOUL.">
+            <span className="soul-gem" aria-hidden="true" />SOUL {soulInHand(hand.hand)}
+          </span>
+          <p className="action-hint">{selectionHint || hint}</p>
           <div className="action-buttons">{buttons}</div>
         </div>
-        <Hand cards={hand.hand} selected={selected} onSelect={setSelected} isPlayable={isPlayable} />
+        <Hand
+          cards={hand.hand}
+          selected={sel?.from === 'hand' ? sel.iid : null}
+          onSelect={(iid) => setSel(iid ? { from: 'hand', iid } : null)}
+          isPlayable={isPlayable}
+        />
       </main>
 
       <aside className="arena-side right">
+        <EffectsPanel game={game} me={me} run={run} actions={effectActions} />
         <EventLog entries={log} />
       </aside>
 
@@ -277,8 +363,8 @@ export default function GameBoard() {
         />
       )}
 
-      {game.phase === 'setup' && !game.players[me]?.ready && (
-        <SetupPanel uid={me} onReady={(cards, idol, aether) => setupReady(sessionId, me, cards, idol, aether).catch((e) => setToast(e.message))} />
+      {game.phase === 'setup' && !player?.ready && (
+        <SetupPanel uid={me} onReady={(cards, aether, idol) => setupReady(sessionId, me, cards, aether, idol).catch((e) => setToast(e.message))} />
       )}
 
       {toast && <div className="toast" role="status">{toast}</div>}

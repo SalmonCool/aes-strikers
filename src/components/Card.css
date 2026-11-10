@@ -39,6 +39,7 @@
   text-shadow: 0 0 1.5cqw rgba(0, 229, 229, 0.8);
 }
 
+.gc-orb sup { font-size: 0.6em; margin-left: 0.2cqw; vertical-align: 0.5em; line-height: 0; }
 .gc-soul-top { top: 2cqw; left: 2cqw; }
 .gc-affinity { top: 2cqw; right: 2cqw; grid-template-rows: 1fr 1fr; padding: 2.5cqw 0; }
 .gc-affinity .gc-aether,
@@ -96,11 +97,16 @@
   box-shadow: 0 0 0 0.5cqw rgba(127, 247, 255, 0.6);
   background: repeating-linear-gradient(135deg, #e9f6fb 0 6cqw, #dbeef6 6cqw 12cqw);
 }
-.gc-art img {
+/* Clips the (possibly zoomed) image; the stat orbs sit outside this so they can overhang the frame */
+.gc-art-window {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 1.8cqw;
+}
+.gc-art-window img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  border-radius: 1.8cqw;
   display: block;
 }
 .gc-health { bottom: -4cqw; left: -2cqw; }
@@ -153,3 +159,16 @@
   white-space: pre-line;
 }
 .gc-soul-bottom { right: 1.5cqw; bottom: 1.5cqw; width: 15cqw; font-size: 5.5cqw; }
+
+/* ---------- SOUL resource card: full-art design ---------- */
+.soul-card .soul-card-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 5cqw;
+  border: 0.9cqw solid #000;
+  box-shadow: 0 0 4cqw rgba(0, 229, 229, 0.35);
+  display: block;
+}

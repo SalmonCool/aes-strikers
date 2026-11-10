@@ -1,138 +1,242 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import {
-  AETHER_TYPES, CARD_TYPES, EMPTY_CARD, IDOL_TYPES, TYPE_ACTIONS, addCard, deleteCard, watchCards,
-} from '../firebase/db.js';
-import { MAX_ART_UPLOAD_BYTES, compressImage } from '../firebase/cardArt.js';
+import { CARD_TYPES, copyDeck, createDeck, deleteCard, deleteDeck, renameDeck, setActiveDeck } from '../firebase/db.js';
+import useDecks from '../hooks/useDecks.js';
 import Card from '../components/Card.jsx';
+import CardEditorModal from '../components/deck/CardEditorModal.jsx';
 import ImportCardsModal from '../components/deck/ImportCardsModal.jsx';
 import FormatGuideModal from '../components/deck/FormatGuideModal.jsx';
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function Select({ id, label, value, onChange, options }) {
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <select id={id} className="ui-select" value={value} onChange={onChange}>
-        {options.map((o) => <option key={o}>{o}</option>)}
-      </select>
-    </div>
-  );
-}
-
-function NumberField({ id, label, value, onChange }) {
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <input id={id} type="number" min={0} max={9999} className="ui-input" value={value} onChange={onChange} />
-    </div>
-  );
-}
-
-function AddCardModal({ uid, onClose }) {
-  const [card, setCard] = useState(EMPTY_CARD);
-  const [artDataUrl, setArtDataUrl] = useState(''); // compressed image, also used as the preview
-  const [artBusy, setArtBusy] = useState(false);
+// ---------- Decks tab ----------
+function DecksTab({ uid, decks, activeDeckId, onOpen, onError }) {
+  const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const set = (k) => (e) => setCard({ ...card, [k]: e.target.value });
+  const [renaming, setRenaming] = useState(null); // { id, name }
 
-  const pickArt = async (e) => {
-    const input = e.target;
-    const file = input.files?.[0];
-    if (!file) return;
-    const reject = (msg) => {
-      setError(msg);
-      input.value = '';
-    };
-    if (!file.type.startsWith('image/')) return reject('Card art must be an image file.');
-    if (file.size > MAX_ART_UPLOAD_BYTES) return reject('Card art must be 2 MB or smaller.');
-    setError('');
-    setArtBusy(true);
-    try {
-      setArtDataUrl(await compressImage(file));
-    } catch (err) {
-      console.error(err);
-      reject('Could not read that image. Try a PNG, JPG or WebP file.');
-    } finally {
-      setArtBusy(false);
-    }
-  };
-
-  const submit = async (e) => {
+  const create = async (e) => {
     e.preventDefault();
+    if (!name.trim()) return;
     setBusy(true);
-    setError('');
     try {
-      await addCard(uid, card, artDataUrl);
-      onClose();
+      const id = await createDeck(uid, name);
+      setName('');
+      onOpen(id);
     } catch (err) {
       console.error(err);
-      setError('Could not save the card. Try again.');
+      onError('Could not create the deck.');
+    } finally {
       setBusy(false);
     }
   };
 
-  return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className="panel modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="add-card-title">
-        <h2 id="add-card-title">Add a Card</h2>
-        <div className="card-editor">
-          <form onSubmit={submit}>
-            <div className="field">
-              <label htmlFor="card-title">Card Title</label>
-              <input id="card-title" className="ui-input" value={card.title} onChange={set('title')} required maxLength={40} autoFocus />
-            </div>
-            <div className="field-row">
-              <Select id="card-type" label="Card Type" value={card.cardType} onChange={set('cardType')} options={CARD_TYPES} />
-              <Select id="card-action" label="Type Action" value={card.typeAction} onChange={set('typeAction')} options={TYPE_ACTIONS} />
-            </div>
-            <div className="field-row three">
-              <NumberField id="card-soul" label="SOUL Cost" value={card.soulCost} onChange={set('soulCost')} />
-              <NumberField id="card-health" label="Health" value={card.health} onChange={set('health')} />
-              <NumberField id="card-damage" label="Damage" value={card.damage} onChange={set('damage')} />
-            </div>
-            <div className="field-row">
-              <Select id="card-aether" label="Aether Type" value={card.aetherType} onChange={set('aetherType')} options={AETHER_TYPES} />
-              <Select id="card-idol" label="Idol Type" value={card.idolType} onChange={set('idolType')} options={IDOL_TYPES} />
-            </div>
-            <div className="field">
-              <label htmlFor="card-desc">Card Description</label>
-              <textarea id="card-desc" className="ui-textarea" value={card.description} onChange={set('description')} maxLength={300} />
-            </div>
-            <div className="field">
-              <label htmlFor="card-art">Primary Card Art (max 2 MB)</label>
-              <input id="card-art" type="file" accept="image/*" className="ui-input" onChange={pickArt} disabled={artBusy} />
-            </div>
-            {error && <p className="ui-msg error">{error}</p>}
-            <div className="modal-actions">
-              <button type="button" className="ui-btn" onClick={onClose} disabled={busy}>Cancel</button>
-              <button type="submit" className="ui-btn primary" disabled={busy || artBusy}>
-                {busy ? 'Saving…' : artBusy ? 'Processing art…' : 'Add Card'}
-              </button>
-            </div>
-          </form>
-          <div className="card-preview" aria-label="Live preview">
-            <Card card={{ ...card, artUrl: artDataUrl }} />
+  const saveRename = async (e) => {
+    e.preventDefault();
+    if (!renaming.name.trim()) return;
+    try {
+      await renameDeck(uid, renaming.id, renaming.name);
+      setRenaming(null);
+    } catch (err) {
+      console.error(err);
+      onError('Could not rename the deck.');
+    }
+  };
+
+  const remove = async (deck) => {
+    if (!confirm(`Delete "${deck.name}" and its ${plural(deck.cards.length, 'card')}? This cannot be undone.`)) return;
+    try {
+      await deleteDeck(uid, deck.id, deck.cards);
+    } catch (err) {
+      console.error(err);
+      onError('Could not delete the deck.');
+    }
+  };
+
+  const copy = async (deck) => {
+    try {
+      const id = await copyDeck(uid, `${deck.name} (Copy)`, deck.cards);
+      onOpen(id);
+    } catch (err) {
+      console.error(err);
+      onError('Could not copy the deck.');
+    }
+  };
+
+  const examples = decks.filter((d) => d.isDefault);
+  const mine = decks.filter((d) => !d.isDefault);
+
+  const tile = (deck) => {
+    const active = deck.id === activeDeckId;
+    const isRenaming = renaming?.id === deck.id;
+    return (
+      <article key={deck.id} className={`deck-tile ${active ? 'active' : ''}`}>
+        <div className="deck-tile-head">
+          {isRenaming ? (
+            <form className="deck-rename" onSubmit={saveRename}>
+              <input
+                className="ui-input"
+                value={renaming.name}
+                onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
+                maxLength={40}
+                autoFocus
+                aria-label="Deck name"
+              />
+              <button className="ui-btn primary small">Save</button>
+              <button type="button" className="ui-btn small" onClick={() => setRenaming(null)}>Cancel</button>
+            </form>
+          ) : (
+            <h3>{deck.name}</h3>
+          )}
+          <div className="deck-badges">
+            {deck.isDefault && <span className="badge lock">Example · Read-only</span>}
+            {active && <span className="badge active">Active for play</span>}
           </div>
         </div>
-      </div>
-    </div>
+        <p className="deck-count">{plural(deck.cards.length, 'card')}</p>
+        <div className="deck-tile-actions">
+          <button className="ui-btn primary small" onClick={() => onOpen(deck.id)}>{deck.isDefault ? 'View Cards' : 'Manage Cards'}</button>
+          {!active && <button className="ui-btn small" onClick={() => setActiveDeck(uid, deck.id).catch(() => onError('Could not select the deck.'))}>Use for Play</button>}
+          {deck.isDefault ? (
+            <button className="ui-btn small" onClick={() => copy(deck)}>Copy to My Decks</button>
+          ) : (
+            !isRenaming && (
+              <>
+                <button className="ui-btn small" onClick={() => setRenaming({ id: deck.id, name: deck.name })}>Rename</button>
+                <button className="ui-btn danger small" onClick={() => remove(deck)}>Delete</button>
+              </>
+            )
+          )}
+        </div>
+      </article>
+    );
+  };
+
+  return (
+    <>
+      <section className="panel">
+        <h2>Create a Deck</h2>
+        <form className="deck-create" onSubmit={create}>
+          <input className="ui-input" placeholder="Deck name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} required />
+          <button className="ui-btn primary" disabled={busy || !name.trim()}>{busy ? 'Creating…' : 'Create Deck'}</button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <h2>My Decks</h2>
+        {mine.length === 0 ? <p className="empty">No decks yet. Create one above, or copy an example deck.</p> : <div className="deck-grid">{mine.map(tile)}</div>}
+      </section>
+
+      <section className="panel">
+        <h2>Example Decks</h2>
+        <div className="deck-grid">{examples.map(tile)}</div>
+      </section>
+    </>
   );
 }
 
-export default function DeckManager() {
-  const { user } = useAuth();
-  const [cards, setCards] = useState(null);
+// ---------- Cards tab ----------
+function CardsTab({ uid, deck, decks, activeDeckId, onSelectDeck }) {
   const [filter, setFilter] = useState('All');
-  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null); // null | 'new' | card
   const [importing, setImporting] = useState(false);
   const [guide, setGuide] = useState(false);
+  const editable = !deck.isDefault;
+  const shown = deck.cards.filter((c) => filter === 'All' || c.cardType === filter);
 
-  useEffect(() => watchCards(user.uid, setCards), [user.uid]);
+  return (
+    <section className="panel">
+      <div className="cards-head">
+        <div className="field cards-deck-pick">
+          <label htmlFor="deck-pick">Deck</label>
+          <select id="deck-pick" className="ui-select" value={deck.id} onChange={(e) => onSelectDeck(e.target.value)}>
+            {decks.map((d) => <option key={d.id} value={d.id}>{d.name}{d.isDefault ? ' (example)' : ''}</option>)}
+          </select>
+        </div>
+        <div className="deck-badges">
+          <span className="badge">{plural(deck.cards.length, 'card')}</span>
+          {deck.isDefault && <span className="badge lock">Read-only</span>}
+          {deck.id === activeDeckId
+            ? <span className="badge active">Active for play</span>
+            : <button className="ui-btn small" onClick={() => setActiveDeck(uid, deck.id)}>Use for Play</button>}
+        </div>
+      </div>
 
-  const shown = (cards || []).filter((c) => filter === 'All' || c.cardType === filter);
+      {deck.isDefault && (
+        <p className="ui-msg info readonly-note">
+          This is a built-in example deck and can’t be edited. Use “Copy to My Decks” on the Decks tab to make an editable version.
+        </p>
+      )}
+
+      <div className="deck-toolbar">
+        {editable && (
+          <>
+            <button className="ui-btn primary" onClick={() => setEditing('new')}>+ Add Card</button>
+            <button className="ui-btn" onClick={() => setImporting(true)}>Import JSON</button>
+          </>
+        )}
+        <button className="ui-btn" onClick={() => setGuide(true)}>Format Guide</button>
+        <select className="ui-select" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter by card type">
+          <option>All</option>
+          {CARD_TYPES.map((t) => <option key={t}>{t}</option>)}
+        </select>
+      </div>
+
+      {shown.length === 0 && (
+        <p className="empty">{deck.cards.length === 0 ? 'This deck has no cards yet. Add or import some to begin.' : 'No cards of this type.'}</p>
+      )}
+
+      <div className="card-grid">
+        {shown.map((c) => (
+          <Card key={c.id} card={c}>
+            {editable && (
+              <div className="card-actions">
+                <button className="ui-btn primary small" onClick={() => setEditing(c)}>Edit</button>
+                <button
+                  className="ui-btn danger small"
+                  onClick={() => confirm(`Remove "${c.title}" from this deck?`) && deleteCard(uid, c)}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+
+      {editing && editable && (
+        <CardEditorModal
+          key={editing === 'new' ? 'new' : editing.id}
+          uid={uid}
+          deckId={deck.id}
+          existing={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      {importing && editable && !guide && (
+        <ImportCardsModal uid={uid} deckId={deck.id} deckName={deck.name} onClose={() => setImporting(false)} onOpenGuide={() => setGuide(true)} />
+      )}
+      {guide && <FormatGuideModal onClose={() => setGuide(false)} />}
+    </section>
+  );
+}
+
+// ---------- Page ----------
+export default function DeckManager() {
+  const { user } = useAuth();
+  const { decks, activeDeckId, loading } = useDecks(user.uid);
+  const [tab, setTab] = useState('decks');
+  const [selectedId, setSelectedId] = useState(null);
+  const [error, setError] = useState('');
+
+  const selected = decks?.find((d) => d.id === selectedId) || decks?.find((d) => d.id === activeDeckId) || null;
+  const active = decks?.find((d) => d.id === activeDeckId);
+
+  const openDeck = (id) => {
+    setSelectedId(id);
+    setTab('cards');
+  };
 
   return (
     <main className="page">
@@ -140,46 +244,30 @@ export default function DeckManager() {
         <header className="page-header">
           <div>
             <h1 className="page-title">Deck <span className="accent">Manager</span></h1>
-            <p className="page-sub">{cards ? `${cards.length} card${cards.length === 1 ? '' : 's'} in your collection` : 'Loading…'}</p>
+            <p className="page-sub">{loading ? 'Loading…' : `Playing with: ${active?.name}`}</p>
           </div>
           <Link to="/" className="ui-btn small">Back to Lobby</Link>
         </header>
 
-        <section className="panel">
-          <div className="deck-toolbar">
-            <button className="ui-btn primary" onClick={() => setAdding(true)}>+ Add Card</button>
-            <button className="ui-btn" onClick={() => setImporting(true)}>Import JSON</button>
-            <button className="ui-btn" onClick={() => setGuide(true)}>Format Guide</button>
-            <select className="ui-select" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter by card type">
-              <option>All</option>
-              {CARD_TYPES.map((t) => <option key={t}>{t}</option>)}
-            </select>
-          </div>
+        <div className="tabs" role="tablist" aria-label="Deck manager">
+          <button role="tab" aria-selected={tab === 'decks'} className={`tab ${tab === 'decks' ? 'active' : ''}`} onClick={() => setTab('decks')}>
+            Decks
+          </button>
+          <button role="tab" aria-selected={tab === 'cards'} className={`tab ${tab === 'cards' ? 'active' : ''}`} onClick={() => setTab('cards')} disabled={!selected}>
+            Cards{selected ? ` · ${selected.name}` : ''}
+          </button>
+        </div>
 
-          {cards && shown.length === 0 && (
-            <p className="empty">{cards.length === 0 ? 'No cards yet. Add your first card to begin.' : 'No cards of this type.'}</p>
-          )}
+        {error && <p className="ui-msg error" style={{ marginBottom: 16 }} onClick={() => setError('')}>{error}</p>}
 
-          <div className="card-grid">
-            {shown.map((c) => (
-              <Card key={c.id} card={c}>
-                <button
-                  className="ui-btn danger small card-delete"
-                  onClick={() => confirm(`Remove "${c.title}" from your collection?`) && deleteCard(user.uid, c)}
-                >
-                  Remove
-                </button>
-              </Card>
-            ))}
-          </div>
-        </section>
+        {loading ? (
+          <p className="empty">Loading decks…</p>
+        ) : tab === 'decks' ? (
+          <DecksTab uid={user.uid} decks={decks} activeDeckId={activeDeckId} onOpen={openDeck} onError={setError} />
+        ) : (
+          selected && <CardsTab key={selected.id} uid={user.uid} deck={selected} decks={decks} activeDeckId={activeDeckId} onSelectDeck={setSelectedId} />
+        )}
       </div>
-
-      {adding && <AddCardModal uid={user.uid} onClose={() => setAdding(false)} />}
-      {importing && !guide && (
-        <ImportCardsModal uid={user.uid} onClose={() => setImporting(false)} onOpenGuide={() => setGuide(true)} />
-      )}
-      {guide && <FormatGuideModal onClose={() => setGuide(false)} />}
     </main>
   );
 }

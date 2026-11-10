@@ -1,4 +1,7 @@
-import { PHASES, STARTING_HEALTH, opponentOf } from '../../game/engine.js';
+import { PHASES, STARTING_HEALTH, STATUSES, opponentOf } from '../../game/engine.js';
+import { zoneLabel } from '../../game/zones.js';
+
+const SOUL_PIPS = 5; // minimum pips shown so the meter has a stable shape
 
 function HealthBar({ player, isMe }) {
   if (!player) {
@@ -9,6 +12,12 @@ function HealthBar({ player, isMe }) {
     );
   }
   const pct = Math.max(0, Math.min(100, (player.health / STARTING_HEALTH) * 100));
+  const soul = player.soulCount || 0;
+  const st = { burn: 0, purge: 0, freeze: 0, frostbite: 0, stun: null, ...(player.status || {}) };
+  const statuses = STATUSES.filter((d) => (d.id === 'stun' ? st.stun : st[d.id] > 0)).map((d) => ({
+    ...d,
+    text: d.id === 'stun' ? `Stun · ${zoneLabel(st.stun.zone).replace('Ability ', '')}` : `${d.label} ×${st[d.id]}`,
+  }));
   return (
     <div className={`pt-player ${isMe ? 'me' : 'opp'}`}>
       <div className="pt-player-name">
@@ -18,10 +27,32 @@ function HealthBar({ player, isMe }) {
         <div className="pt-health-fill" style={{ width: `${pct}%` }} />
         <span className="pt-health-text">{player.health} / {STARTING_HEALTH}</span>
       </div>
+      <div className="pt-soul" title="SOUL cards in hand. Each pays 1 SOUL toward a card's cost.">
+        <span className="pt-soul-label">SOUL</span>
+        <span className="pt-soul-gems" aria-hidden="true">
+          {Array.from({ length: Math.max(SOUL_PIPS, soul) }, (_, i) => (
+            <span key={i} className={`pt-soul-pip ${i < soul ? 'on' : ''}`} />
+          ))}
+        </span>
+        <span className="pt-soul-value" aria-label={`${soul} SOUL available`}>{soul}</span>
+      </div>
       <div className="pt-counts">
         <span>Deck {player.deckCount}</span>
         <span>Hand {player.handCount}</span>
       </div>
+      {player.aetherType && (
+        <div className="pt-tokens">
+          <span className="pt-token aether">{player.aetherType}</span>
+          <span className="pt-token idol">{player.idolType}</span>
+        </div>
+      )}
+      {statuses.length > 0 && (
+        <div className="pt-statuses">
+          {statuses.map((st) => (
+            <span key={st.id} className={`pt-status status-${st.id}`} title={st.desc}>{st.text}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

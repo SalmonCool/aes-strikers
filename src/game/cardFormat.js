@@ -13,14 +13,20 @@ export const CARD_FIELDS = [
     description: 'Card name shown in the banner at the top of the card.' },
   { key: 'cardType', kind: 'enum', required: true, values: CARD_TYPES,
     description: 'What kind of card this is. Shown on the left of the type tab above the description.' },
-  { key: 'typeAction', kind: 'enum', required: true, values: TYPE_ACTIONS,
-    description: 'How the card is used. Shown after the card type, e.g. "Ability: Equip".' },
+  { key: 'typeAction', kind: 'enum', required: false, default: '', values: TYPE_ACTIONS,
+    description: 'How the card is used. Shown after the card type, e.g. "Ability: Equip". Leave empty for cards with no action, e.g. a plain "Spatial" or "Incantation".' },
   { key: 'soulCost', kind: 'number', required: false, default: 0, min: 0, max: 9999,
     description: 'SOUL resource cost to play the card. Shown in the top-left and bottom-right circles.' },
   { key: 'health', kind: 'number', required: false, default: 0, min: 0, max: 9999,
     description: 'Hit points of the card. Only cards with health above 0 can be targeted by attacks. Bottom-left of the art.' },
   { key: 'damage', kind: 'number', required: false, default: 0, min: 0, max: 9999,
     description: 'Damage dealt when this card attacks or counters. Bottom-right of the art.' },
+  { key: 'block', kind: 'number', required: false, default: 0, min: 0, max: 9999,
+    description: 'Defend cards: damage blocked when played as a COUNTER!. Body Armor: amount direct damage is reduced by. 0 for other cards.' },
+  { key: 'healthPlus', kind: 'boolean', required: false, default: false,
+    description: 'true if the printed health is variable and shows a "+", e.g. "40+".' },
+  { key: 'damagePlus', kind: 'boolean', required: false, default: false,
+    description: 'true if the printed damage is variable and shows a "+", e.g. "20+".' },
   { key: 'aetherType', kind: 'enum', required: true, values: AETHER_TYPES,
     description: 'Elemental Aether affinity. Upper word in the top-right circle.' },
   { key: 'idolType', kind: 'enum', required: true, values: IDOL_TYPES,
@@ -57,6 +63,7 @@ export const EXAMPLE_FILE = {
       soulCost: 2,
       health: 0,
       damage: 40,
+      damagePlus: true,
       aetherType: 'Fire',
       idolType: 'Anger',
       description: 'Deal 40 damage to a target with health.',
@@ -98,6 +105,9 @@ export function validateCard(raw) {
       const m = typeof v === 'string' ? matchEnum(v, f.values) : null;
       if (!m) errors.push(`"${f.key}" must be one of: ${f.values.join(', ')} (got "${v}").`);
       else card[f.key] = m;
+    } else if (f.kind === 'boolean') {
+      if (typeof v !== 'boolean') errors.push(`"${f.key}" must be true or false.`);
+      else card[f.key] = v;
     } else if (f.kind === 'url') {
       if (typeof v !== 'string' || !/^(https:\/\/|data:image\/)/i.test(v.trim())) errors.push(`"${f.key}" must start with https:// or data:image/.`);
       else card[f.key] = v.trim();
@@ -144,6 +154,7 @@ export function buildAiPrompt() {
     if (f.kind === 'enum') rule = `one of exactly: ${f.values.map((v) => `"${v}"`).join(', ')}`;
     else if (f.kind === 'number') rule = `whole number ${f.min}–${f.max}`;
     else if (f.kind === 'string') rule = `text, max ${f.max} characters`;
+    else if (f.kind === 'boolean') rule = 'true or false';
     else rule = 'https:// image URL or data:image URL';
     const req = f.required ? 'REQUIRED' : `optional, default ${JSON.stringify(f.default)}`;
     return `- "${f.key}" (${req}; ${rule}): ${f.description}`;
@@ -163,6 +174,11 @@ ${fieldLines}
 - Maximum ${MAX_IMPORT_CARDS} cards per file.
 
 GAME CONTEXT (to help you choose sensible values)
+- Attack and Defend cards are cast from hand. Both can be played during COUNTER!: Attack cards subtract their "damage" from incoming damage, Defend cards subtract their "block".
+- Cards with typeAction "Latent" are set face-down (SOUL paid then) and revealed later.
+- Shields absorb direct damage with their health; Body Armor reduces direct damage by its "block".
+- A player can only play cards matching their chosen Aether and Idol types.
+- "Soul" cards are resources: to play a card, the player discards SOUL cards from their hand equal to its "soulCost". A SOUL resource card itself uses cardType "Soul", no typeAction, and 0 for every number.
 - Players start with 400 health. Attacks are declared with "Attack" cards during the STRIKE! phase and deal their "damage".
 - The defender may COUNTER! with an "Attack" card; its damage is subtracted from the incoming damage.
 - Only cards with "health" above 0 can be targeted by attacks.

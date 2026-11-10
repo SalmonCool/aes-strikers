@@ -33,6 +33,7 @@ const allowed = (f) => {
   if (f.kind === 'enum') return f.values.join(', ');
   if (f.kind === 'number') return `Whole number ${f.min}–${f.max}`;
   if (f.kind === 'string') return `Text, up to ${f.max} characters`;
+  if (f.kind === 'boolean') return 'true or false';
   return 'https:// or data:image/ URL';
 };
 

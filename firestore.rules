@@ -9,8 +9,11 @@ service cloud.firestore {
       allow read: if signedIn();
       allow write: if signedIn() && me() == uid;
 
-      // A player's card collection is private to them.
+      // A player's card collection and decks are private to them.
       match /cards/{cardId} {
+        allow read, write: if signedIn() && me() == uid;
+      }
+      match /decks/{deckId} {
         allow read, write: if signedIn() && me() == uid;
       }
 

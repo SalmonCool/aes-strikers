@@ -18,7 +18,7 @@ async function fetchArt(url) {
   return compressImage(blob);
 }
 
-export default function ImportCardsModal({ uid, onClose, onOpenGuide }) {
+export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpenGuide }) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState(null); // { entries, fileError }
   const [progress, setProgress] = useState(null); // { done, total }
@@ -61,7 +61,7 @@ export default function ImportCardsModal({ uid, onClose, onOpenGuide }) {
           }
         }
         for (let i = 0; i < copies; i++) {
-          await addCard(uid, fields, art);
+          await addCard(uid, deckId, fields, art);
           added += 1;
           setProgress({ done: added, total: totalCopies });
         }
@@ -76,7 +76,7 @@ export default function ImportCardsModal({ uid, onClose, onOpenGuide }) {
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !importing && onClose()}>
       <div className="panel modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="import-title">
-        <h2 id="import-title">Import Cards</h2>
+        <h2 id="import-title">Import Cards into “{deckName}”</h2>
 
         {!result && (
           <>
@@ -131,7 +131,7 @@ export default function ImportCardsModal({ uid, onClose, onOpenGuide }) {
 
         {result && (
           <div className="import-result">
-            <p className="ui-msg info">Added {result.added} card{result.added === 1 ? '' : 's'} to your collection.</p>
+            <p className="ui-msg info">Added {result.added} card{result.added === 1 ? '' : 's'} to “{deckName}”.</p>
             {result.warnings.length > 0 && (
               <ul className="import-warnings">{result.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
             )}

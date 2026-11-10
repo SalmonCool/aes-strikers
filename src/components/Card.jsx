@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { loadArt } from '../firebase/cardArt.js';
+import { artKey, cropStyle, loadArt } from '../firebase/cardArt.js';
 import './Card.css';
+
+const SOUL_CARD_ART = '/cards/soul.jpg';
 
 // Loads a card's art from Firestore chunks (cached). Returns '' until loaded / if none.
 function useCardArt(art) {
   const [loaded, setLoaded] = useState({ key: null, url: '' });
-  const key = art ? `${art.ownerUid}/${art.cardId}` : null;
+  const key = art ? artKey(art) : null;
 
   useEffect(() => {
     if (!art) return;
@@ -27,6 +29,16 @@ export default function Card({ card, children }) {
   const savedArt = useCardArt(card.artUrl ? null : card.art);
   const artUrl = card.artUrl || savedArt;
 
+  // SOUL resource cards have their own full-art design
+  if (cardType === 'Soul') {
+    return (
+      <article className="game-card soul-card" aria-label={`${title || 'SOUL'} — SOUL resource card`}>
+        <img className="soul-card-art" src={SOUL_CARD_ART} alt="" draggable="false" />
+        {children}
+      </article>
+    );
+  }
+
   return (
     <article className="game-card" aria-label={title || 'Card'}>
       <div className="gc-frame">
@@ -40,9 +52,11 @@ export default function Card({ card, children }) {
         </span>
 
         <div className="gc-art">
-          {artUrl ? <img src={artUrl} alt="" draggable="false" /> : <span className="gc-art-empty" />}
-          <span className="gc-orb gc-health" title="Health">{health}</span>
-          <span className="gc-orb gc-damage" title="Damage">{damage}</span>
+          <div className="gc-art-window">
+            {artUrl && <img src={artUrl} alt="" draggable="false" style={cropStyle(card.artCrop)} />}
+          </div>
+          <span className="gc-orb gc-health" title="Health">{health}{card.healthPlus && <sup>+</sup>}</span>
+          <span className="gc-orb gc-damage" title="Damage">{damage}{card.damagePlus && <sup>+</sup>}</span>
         </div>
 
         <div className="gc-type">
