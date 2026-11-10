@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import BlueFlame from '../components/BlueFlame.jsx';
 import './Login.css';
@@ -17,6 +17,7 @@ const friendlyError = (code) => ERRORS[code] || 'Something went wrong. Please tr
 export default function Login() {
   const { user, loginWithGoogle, loginWithEmail, signUpWithEmail, resetPassword } = useAuth();
   const navigate = useNavigate();
+  const from = useLocation().state?.from || '/';
   const [mode, setMode] = useState('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -25,7 +26,7 @@ export default function Login() {
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={from} replace />;
 
   const isLogin = mode === 'login';
 
@@ -35,7 +36,7 @@ export default function Login() {
     setBusy(true);
     try {
       await fn();
-      navigate('/');
+      navigate(from, { replace: true });
     } catch (e) {
       setError(friendlyError(e.code));
     } finally {

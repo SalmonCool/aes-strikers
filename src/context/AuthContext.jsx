@@ -10,6 +10,7 @@ import {
   signOut,
 } from 'firebase/auth';
 import { auth } from '../firebase/config.js';
+import { saveUserProfile } from '../firebase/db.js';
 
 const AuthContext = createContext(null);
 
@@ -22,6 +23,7 @@ export function AuthProvider({ children }) {
     return onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
+      if (u) saveUserProfile(u).catch((e) => console.error('Failed to save profile', e));
     });
   }, []);
 
@@ -32,7 +34,10 @@ export function AuthProvider({ children }) {
     loginWithEmail: (email, password) => signInWithEmailAndPassword(auth, email, password),
     signUpWithEmail: async (email, password, displayName) => {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
-      if (displayName) await updateProfile(cred.user, { displayName });
+      if (displayName) {
+        await updateProfile(cred.user, { displayName });
+        await saveUserProfile(cred.user); // re-save now that the name is set
+      }
       return cred;
     },
     resetPassword: (email) => sendPasswordResetEmail(auth, email),

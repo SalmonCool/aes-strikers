@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+
+    // Player profiles: readable by signed-in players (needed for add-friend by email), writable by owner.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && me() == uid;
+
+      // A player's card collection is private to them.
+      match /cards/{cardId} {
+        allow read, write: if signedIn() && me() == uid;
+      }
+
+      // Card art chunks: any signed-in player can view (opponents see your cards in the arena),
+      // only the owner can write. Each chunk must be under ~1 MB.
+      match /cardArt/{cardId}/chunks/{index} {
+        allow read: if signedIn();
+        allow delete: if signedIn() && me() == uid;
+        allow create, update: if signedIn() && me() == uid
+          && request.resource.data.keys().hasOnly(['index', 'data'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() <= 1000000;
+      }
+    }
+
+    // Doc id is the two uids sorted and joined, so there is only ever one per pair.
+    match /friendships/{id} {
+      allow read: if signedIn() && me() in resource.data.members;
+      allow create: if signedIn()
+        && request.resource.data.requestedBy == me()
+        && me() in request.resource.data.members
+        && request.resource.data.members.size() == 2
+        && request.resource.data.status == 'pending';
+      // Only the recipient can accept, and only the status may change.
+      allow update: if signedIn()
+        && me() in resource.data.members
+        && me() != resource.data.requestedBy
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'accepted';
+      allow delete: if signedIn() && me() in resource.data.members;
+    }
+
+    // Game sessions: anyone signed in with the link can view; host creates; one guest can claim the free seat.
+    match /sessions/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.hostUid == me();
+      allow update: if signedIn() && (
+        me() == resource.data.hostUid ||
+        me() == resource.data.guestUid ||
+        (resource.data.guestUid == null && request.resource.data.guestUid == me()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guestUid', 'guestName', 'status']))
+      );
+      allow delete: if signedIn() && me() == resource.data.hostUid;
+    }
+  }
+}

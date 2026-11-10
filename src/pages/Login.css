@@ -18,59 +18,116 @@
   pointer-events: none;
 }
 
+/* Arcane card: soft rounded panel with a slowly turning glow along its border */
+@property --spin {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
 .login-card {
   position: relative;
   z-index: 1;
   width: 100%;
   max-width: 400px;
-  padding: 40px 32px 32px;
-  border-radius: 18px;
-  background: rgba(6, 12, 28, 0.72);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(0, 229, 229, 0.25);
+  padding: 44px 32px 32px;
+  border-radius: 28px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(0, 229, 229, 0.12), transparent 65%),
+    linear-gradient(180deg, rgba(10, 31, 68, 0.78), rgba(3, 8, 22, 0.88));
+  backdrop-filter: blur(12px);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.03),
-    0 0 40px rgba(0, 229, 229, 0.15),
+    0 0 50px rgba(0, 229, 229, 0.12),
+    inset 0 0 40px rgba(0, 120, 255, 0.08),
     0 30px 60px rgba(0, 0, 0, 0.6);
-  animation: card-in 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  animation: card-in 0.9s ease-out both;
 }
 
+/* Glowing border that slowly circles the card */
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--spin),
+    rgba(0, 229, 229, 0.9),
+    rgba(0, 229, 229, 0.08) 25%,
+    rgba(80, 140, 255, 0.6) 50%,
+    rgba(0, 229, 229, 0.08) 75%,
+    rgba(0, 229, 229, 0.9)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: spin 10s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes spin { to { --spin: 360deg; } }
+
 @keyframes card-in {
-  from { opacity: 0; transform: translateY(30px) scale(0.96); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateY(16px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+/* Small glowing gem above the title */
+.logo::before {
+  content: '';
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 0 auto 18px;
+  transform: rotate(45deg);
+  background: var(--teal);
+  box-shadow: 0 0 10px var(--teal), 0 0 24px rgba(0, 229, 229, 0.6);
+  animation: pulse 3s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.55; box-shadow: 0 0 6px var(--teal); }
 }
 
 .logo {
   margin: 0;
   text-align: center;
   font-family: var(--font-display);
-  font-size: clamp(2rem, 8vw, 2.6rem);
-  font-weight: 900;
-  font-style: italic;
-  letter-spacing: 0.04em;
+  font-size: clamp(1.9rem, 8vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
   color: var(--white);
-  line-height: 1;
+  line-height: 1.1;
 }
 .logo span {
-  color: var(--teal);
-  text-shadow: 0 0 12px rgba(0, 229, 229, 0.8), 0 0 30px rgba(0, 150, 255, 0.5);
+  display: block;
+  background: linear-gradient(90deg, #7ff7ff, var(--teal) 40%, #5aa8ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 10px rgba(0, 229, 229, 0.45));
 }
 
 .tagline {
   text-align: center;
-  margin: 10px 0 28px;
-  color: rgba(255, 255, 255, 0.6);
-  text-transform: uppercase;
-  letter-spacing: 0.25em;
-  font-size: 0.75rem;
+  margin: 12px 0 28px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.2em;
+  font-size: 0.78rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card::before, .logo::before { animation: none; }
 }
 
 .login-card form { display: flex; flex-direction: column; gap: 12px; }
 
 .login-card input {
   width: 100%;
-  padding: 14px 16px;
-  border-radius: 10px;
+  padding: 14px 18px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.45);
   color: var(--white);
@@ -104,10 +161,11 @@
 
 .btn-primary {
   margin-top: 6px;
-  background: linear-gradient(90deg, var(--teal), #00a8ff);
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal), #3d8bff);
   color: var(--black);
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
+  font-family: var(--font-display);
+  letter-spacing: 0.12em;
   box-shadow: 0 0 20px rgba(0, 229, 229, 0.45);
 }
 .btn-primary:not(:disabled):hover {
@@ -115,7 +173,7 @@
   filter: brightness(1.1);
 }
 
-.btn-google { background: var(--white); color: #111; }
+.btn-google { background: var(--white); color: #111; border-radius: 999px; }
 .btn-google:not(:disabled):hover { box-shadow: 0 0 20px rgba(255, 255, 255, 0.3); }
 
 .divider {
@@ -127,6 +185,7 @@
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.2em;
+  font-family: var(--font-display);
 }
 .divider::before,
 .divider::after {

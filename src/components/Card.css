@@ -1,0 +1,155 @@
+/* Card layout follows the reference card (467 x 657). All sizes use cqw so the card scales as a unit. */
+.game-card {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 467 / 657;
+  container-type: inline-size;
+  user-select: none;
+}
+
+.gc-frame {
+  position: absolute;
+  inset: 0;
+  border-radius: 5cqw;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(127, 247, 255, 0.25), transparent 55%),
+    linear-gradient(180deg, #06224d 0%, #0b4f86 35%, #0e86b0 70%, #12c4d0 100%);
+  border: 0.9cqw solid #000;
+  box-shadow: inset 0 0 0 0.5cqw rgba(127, 247, 255, 0.35), 0 0 4cqw rgba(0, 229, 229, 0.25);
+}
+
+/* ---------- Orbs (stat circles) ---------- */
+.gc-orb {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 17cqw;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, #04122e 55%, #0a2d5c 100%);
+  border: 0.9cqw solid var(--teal);
+  box-shadow: 0 0 0 0.6cqw rgba(0, 0, 0, 0.8), 0 0 3cqw rgba(0, 229, 229, 0.7), inset 0 0 2cqw rgba(0, 229, 229, 0.35);
+  color: var(--white);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 6.5cqw;
+  line-height: 1;
+  text-shadow: 0 0 1.5cqw rgba(0, 229, 229, 0.8);
+}
+
+.gc-soul-top { top: 2cqw; left: 2cqw; }
+.gc-affinity { top: 2cqw; right: 2cqw; grid-template-rows: 1fr 1fr; padding: 2.5cqw 0; }
+.gc-affinity .gc-aether,
+.gc-affinity .gc-idol {
+  font-size: 2.9cqw;
+  letter-spacing: 0.02em;
+  text-shadow: none;
+}
+.gc-affinity .gc-aether {
+  align-self: end;
+  color: #7ff7ff;
+  padding-bottom: 0.4cqw;
+  border-bottom: 0.3cqw dotted rgba(127, 247, 255, 0.7);
+}
+.gc-affinity .gc-idol { align-self: start; padding-top: 0.4cqw; font-size: 2.6cqw; }
+
+/* ---------- Title ---------- */
+.gc-title {
+  position: absolute;
+  top: 3.5cqw;
+  left: 20.5cqw;
+  right: 20.5cqw;
+  height: 11cqw;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 2cqw;
+  border-radius: 2.5cqw;
+  background: linear-gradient(180deg, rgba(4, 18, 46, 0.95), rgba(10, 45, 92, 0.95));
+  border: 0.6cqw solid rgba(127, 247, 255, 0.8);
+  box-shadow: 0 0 2.5cqw rgba(0, 229, 229, 0.35);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 4.4cqw;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--white);
+}
+.gc-title span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- Art ---------- */
+.gc-art {
+  position: absolute;
+  top: 19.5cqw;
+  left: 5cqw;
+  right: 5cqw;
+  height: 70cqw;
+  border-radius: 2.5cqw;
+  border: 0.7cqw solid #000;
+  box-shadow: 0 0 0 0.5cqw rgba(127, 247, 255, 0.6);
+  background: repeating-linear-gradient(135deg, #e9f6fb 0 6cqw, #dbeef6 6cqw 12cqw);
+}
+.gc-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 1.8cqw;
+  display: block;
+}
+.gc-health { bottom: -4cqw; left: -2cqw; }
+.gc-damage { bottom: -4cqw; right: -2cqw; }
+
+/* ---------- Type tab ---------- */
+.gc-type {
+  position: absolute;
+  z-index: 1;
+  top: 94cqw;
+  left: 5cqw;
+  max-width: 62cqw;
+  padding: 1.6cqw 4cqw;
+  border-radius: 2.5cqw 2.5cqw 0 0;
+  background: linear-gradient(180deg, rgba(4, 18, 46, 0.95), rgba(10, 45, 92, 0.95));
+  border: 0.6cqw solid rgba(127, 247, 255, 0.8);
+  border-bottom: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 4cqw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #7ff7ff;
+}
+
+/* ---------- Description ---------- */
+.gc-desc {
+  position: absolute;
+  top: 101.5cqw;
+  left: 5cqw;
+  right: 5cqw;
+  bottom: 4cqw;
+  padding: 2.5cqw 3cqw;
+  border-radius: 0 2.5cqw 2.5cqw 2.5cqw;
+  background: rgba(3, 10, 30, 0.82);
+  border: 0.6cqw solid rgba(127, 247, 255, 0.8);
+  box-shadow: inset 0 0 3cqw rgba(0, 229, 229, 0.12);
+}
+.gc-desc p {
+  margin: 0;
+  padding-right: 2cqw;
+  max-height: calc(100% - 15cqw);
+  overflow: hidden;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 3.6cqw;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: pre-line;
+}
+.gc-soul-bottom { right: 1.5cqw; bottom: 1.5cqw; width: 15cqw; font-size: 5.5cqw; }

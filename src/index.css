@@ -4,8 +4,8 @@
   --navy-deep: #050d24;
   --white: #ffffff;
   --black: #000000;
-  --font-display: 'Orbitron', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, sans-serif;
+  --font-display: 'Cinzel', Georgia, serif;
+  --font-body: 'Raleway', system-ui, sans-serif;
   font-family: var(--font-body);
   color: var(--white);
   background: var(--black);
@@ -18,4 +18,15 @@ body { margin: 0; min-height: 100vh; background: var(--black); }
 
 .home { display: grid; place-items: center; align-content: center; gap: 16px; min-height: 100vh; text-align: center; padding: 16px; }
 .home h1 { font-family: var(--font-display); color: var(--teal); font-size: 3rem; margin: 0; }
+.home-play {
+  padding: 14px 32px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal), #3d8bff);
+  color: var(--black);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  box-shadow: 0 0 20px rgba(0, 229, 229, 0.45);
+}
 .home button { padding: 10px 20px; border-radius: 8px; border: 1px solid var(--teal); background: transparent; color: var(--teal); cursor: pointer; }
