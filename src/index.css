@@ -1,13 +1,21 @@
 :root {
-  --bg: #12141c;
-  --surface: #1d2030;
-  --text: #e8eaf2;
-  --accent: #f5b942;
-  font-family: system-ui, sans-serif;
-  color: var(--text);
-  background: var(--bg);
+  --teal: #00e5e5;
+  --navy: #0a1f44;
+  --navy-deep: #050d24;
+  --white: #ffffff;
+  --black: #000000;
+  --font-display: 'Orbitron', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-body);
+  color: var(--white);
+  background: var(--black);
 }
+
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; }
-.home { display: grid; place-items: center; min-height: 100vh; text-align: center; }
-.home h1 { color: var(--accent); font-size: 3rem; margin: 0; }
+body { margin: 0; min-height: 100vh; background: var(--black); }
+
+.screen-loading { display: grid; place-items: center; min-height: 100vh; color: var(--teal); }
+
+.home { display: grid; place-items: center; align-content: center; gap: 16px; min-height: 100vh; text-align: center; padding: 16px; }
+.home h1 { font-family: var(--font-display); color: var(--teal); font-size: 3rem; margin: 0; }
+.home button { padding: 10px 20px; border-radius: 8px; border: 1px solid var(--teal); background: transparent; color: var(--teal); cursor: pointer; }
