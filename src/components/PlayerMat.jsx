@@ -1,9 +1,23 @@
+import { createContext, useContext, useState } from 'react';
 import Card from './Card.jsx';
+import CardPreview, { hoverRect } from './CardPreview.jsx';
 import { MAX_INCANTATIONS, ZONES } from '../game/zones.js';
 
-const CardSlot = ({ card, className = '' }) => (
-  <div className={`zone-card ${className}`}><Card card={card} /></div>
-);
+// Lets every card slot on the mat report hover without threading props through each zone.
+const HoverContext = createContext(null);
+
+const CardSlot = ({ card, className = '' }) => {
+  const setHover = useContext(HoverContext);
+  return (
+    <div
+      className={`zone-card ${className}`}
+      onMouseEnter={(e) => setHover({ card, rect: hoverRect(e) })}
+      onMouseLeave={() => setHover(null)}
+    >
+      <Card card={card} />
+    </div>
+  );
+};
 
 // One player's half of the board.
 //   board:        { zoneId: card | { faceDown } , incantation: card[] }
@@ -15,8 +29,12 @@ export default function PlayerMat({
   side, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [],
   stunZone, clashCard, turnNo, highlight, onZoneClick,
 }) {
+  const [hover, setHover] = useState(null); // { card, rect }
+
   return (
-    <section className={`player-mat ${side}`} aria-label={`${playerName}'s side`}>
+    <HoverContext.Provider value={setHover}>
+    {hover && <CardPreview card={hover.card} rect={hover.rect} />}
+    <section className={`player-mat ${side}`} aria-label={`${playerName}'s side`} onMouseLeave={() => setHover(null)}>
       <div className="mat-watermark" aria-hidden="true">Strike!</div>
       <div className="mat-player">{playerName}</div>
       {ZONES.map((z) => {
@@ -93,5 +111,6 @@ export default function PlayerMat({
         );
       })}
     </section>
+    </HoverContext.Provider>
   );
 }
