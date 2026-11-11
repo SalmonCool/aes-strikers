@@ -465,3 +465,17 @@ code {
 .list-group li.over { background: rgba(255, 60, 90, 0.15); }
 .list-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limits-note { margin-top: 16px; }
+.pool-card-art { cursor: zoom-in; }
+.list-name { cursor: zoom-in; }
+
+/* ---------- Enlarged card preview on hover (hand, board, deck builder) ---------- */
+.card-preview-float {
+  position: fixed;
+  z-index: 45;
+  pointer-events: none;
+  filter: drop-shadow(0 0 24px rgba(0, 229, 229, 0.45)) drop-shadow(0 20px 40px rgba(0, 0, 0, 0.7));
+  animation: preview-in 0.15s ease-out both;
+}
+@keyframes preview-in { from { opacity: 0; scale: 0.92; } to { opacity: 1; scale: 1; } }
+@media (prefers-reduced-motion: reduce) { .card-preview-float { animation: none; } }
+@media (hover: none) { .card-preview-float { display: none; } }

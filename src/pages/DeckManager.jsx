@@ -10,6 +10,7 @@ import {
   COPY_LIMITS, BODY_ARMOR_PER_DECK, DECK_SIZE_LIMIT, TYPE_TOTAL_LIMITS, copyLimitFor, limitLabel, maxCopiesInDeck,
 } from '../game/deckRules.js';
 import Card from '../components/Card.jsx';
+import CardPreview, { hoverRect } from '../components/CardPreview.jsx';
 import CardEditorModal from '../components/deck/CardEditorModal.jsx';
 import ImportCardsModal from '../components/deck/ImportCardsModal.jsx';
 import FormatGuideModal from '../components/deck/FormatGuideModal.jsx';
@@ -160,7 +161,7 @@ function DeckStats({ deck }) {
   const { size, byType } = deck.check;
   return (
     <p className="deck-count">
-      {size}/{DECK_SIZE_LIMIT} cards + {byType.Soul || 0} SOUL · Weapons {byType.Weapon || 0}/{TYPE_TOTAL_LIMITS.Weapon} · Shields {byType.Shield || 0}/{TYPE_TOTAL_LIMITS.Shield} · Body Armor {byType['Body Armor'] || 0}/{BODY_ARMOR_PER_DECK}
+      {size}/{DECK_SIZE_LIMIT} cards ({byType.Soul || 0} SOUL) · Weapons {byType.Weapon || 0}/{TYPE_TOTAL_LIMITS.Weapon} · Shields {byType.Shield || 0}/{TYPE_TOTAL_LIMITS.Shield} · Body Armor {byType['Body Armor'] || 0}/{BODY_ARMOR_PER_DECK}
     </p>
   );
 }
@@ -184,6 +185,12 @@ function DeckBuilder({ uid, deck, sets, catalog, activeDeckId, onBack, onError }
   const [search, setSearch] = useState('');
   const entries = deck.entries;
   const readOnly = Boolean(deck.builtIn);
+  // Enlarged preview while hovering a card in the pool or the deck list
+  const [hover, setHover] = useState(null); // { card, rect }
+  const hoverProps = (card) => ({
+    onMouseEnter: (e) => setHover({ card, rect: hoverRect(e) }),
+    onMouseLeave: () => setHover(null),
+  });
 
   const setCount = (card, n) => {
     const max = maxCopiesInDeck(card, entries, catalog);
@@ -260,7 +267,9 @@ function DeckBuilder({ uid, deck, sets, catalog, activeDeckId, onBack, onError }
               const max = maxCopiesInDeck(c, entries, catalog);
               return (
                 <div key={c.id} className={`pool-card ${count > 0 ? 'in-deck' : ''}`}>
-                  <Card card={c} />
+                  <div className="pool-card-art" {...hoverProps(c)}>
+                    <Card card={c} />
+                  </div>
                   <CountControl count={count} max={Math.max(max, count)} label={c.title} onChange={(n) => setCount(c, n)} readOnly={readOnly} />
                   <span className="pool-limit">{limitLabel(c)}</span>
                 </div>
@@ -282,7 +291,7 @@ function DeckBuilder({ uid, deck, sets, catalog, activeDeckId, onBack, onError }
                 <ul>
                   {byType[t].map(({ card, n }) => (
                     <li key={card.id} className={!TYPE_TOTAL_LIMITS[card.cardType] && n > copyLimitFor(card) ? 'over' : ''}>
-                      <span className="list-name">{card.title}</span>
+                      <span className="list-name" {...hoverProps(card)}>{card.title}</span>
                       <CountControl count={n} max={Math.max(maxCopiesInDeck(card, entries, catalog), n)} label={card.title} onChange={(v) => setCount(card, v)} readOnly={readOnly} />
                     </li>
                   ))}
@@ -292,10 +301,11 @@ function DeckBuilder({ uid, deck, sets, catalog, activeDeckId, onBack, onError }
           })}
           {missing > 0 && <p className="field-help">{plural(missing, 'card')} in this deck no longer exist and are ignored.</p>}
           <p className="field-help limits-note">
-            Max {DECK_SIZE_LIMIT} cards (SOUL not counted, unlimited). Copies per card: Attack {COPY_LIMITS.Attack} · Defend {COPY_LIMITS.Defend} · Ability {COPY_LIMITS.Ability} · Incantation {COPY_LIMITS.Incantation} · Spatial {COPY_LIMITS.Spatial}. Per deck: {TYPE_TOTAL_LIMITS.Weapon} Weapons · {TYPE_TOTAL_LIMITS.Shield} Shields · {BODY_ARMOR_PER_DECK} Body Armor.
+            Max {DECK_SIZE_LIMIT} cards, SOUL included (any number of SOUL within that). Copies per card: Attack {COPY_LIMITS.Attack} · Defend {COPY_LIMITS.Defend} · Ability {COPY_LIMITS.Ability} · Incantation {COPY_LIMITS.Incantation} · Spatial {COPY_LIMITS.Spatial}. Per deck: {TYPE_TOTAL_LIMITS.Weapon} Weapons · {TYPE_TOTAL_LIMITS.Shield} Shields · {BODY_ARMOR_PER_DECK} Body Armor.
           </p>
         </aside>
       </div>
+      {hover && <CardPreview card={hover.card} rect={hover.rect} />}
     </div>
   );
 }

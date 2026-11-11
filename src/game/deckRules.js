@@ -2,7 +2,7 @@
 //
 // Per-card copy limits by type (e.g. up to 4 copies of "Strikethrough").
 // Some types are also capped across the whole deck (e.g. 2 Weapons total, any mix, duplicates allowed).
-// SOUL resource cards are unlimited and don't count toward the deck size limit.
+// SOUL resource cards have no per-card copy limit, but like every card they count toward the 30-card deck limit.
 export const COPY_LIMITS = {
   Attack: 4,
   Defend: 4,
@@ -17,14 +17,14 @@ export const TYPE_TOTAL_LIMITS = {
   Shield: 2,
 };
 export const BODY_ARMOR_PER_DECK = TYPE_TOTAL_LIMITS['Body Armor'];
-export const DECK_SIZE_LIMIT = 30; // cards other than SOUL
+export const DECK_SIZE_LIMIT = 30; // every card, SOUL included
 
 const isSoul = (card) => card.cardType === 'Soul';
 
 export const copyLimitFor = (card) => COPY_LIMITS[card.cardType] ?? TYPE_TOTAL_LIMITS[card.cardType] ?? 4;
 
 export function limitLabel(card) {
-  if (isSoul(card)) return 'unlimited · not counted in 30';
+  if (isSoul(card)) return 'any number · counts toward 30';
   const total = TYPE_TOTAL_LIMITS[card.cardType];
   if (total) return `${total} ${card.cardType} per deck`;
   return `max ${copyLimitFor(card)}`;
@@ -35,7 +35,6 @@ const countWhere = (entries, catalog, pred) =>
 
 // The most copies of `card` this deck may hold, given everything else in it.
 export function maxCopiesInDeck(card, entries, catalog) {
-  if (isSoul(card)) return Infinity;
   const current = entries[card.id] || 0;
   let max = copyLimitFor(card);
   const typeCap = TYPE_TOTAL_LIMITS[card.cardType];
@@ -43,7 +42,7 @@ export function maxCopiesInDeck(card, entries, catalog) {
     const others = countWhere(entries, catalog, (id, c) => id !== card.id && c.cardType === card.cardType);
     max = Math.min(max, typeCap - others);
   }
-  const used = countWhere(entries, catalog, (id, c) => !isSoul(c));
+  const used = countWhere(entries, catalog, () => true);
   max = Math.min(max, current + (DECK_SIZE_LIMIT - used));
   return Math.max(0, max);
 }
@@ -53,13 +52,13 @@ export function validateDeck(entries, catalog) {
   const errors = [];
   const byType = {};
   let total = 0;
-  let size = 0; // excludes SOUL
+  let size = 0; // every card, SOUL included
 
   for (const [id, count] of Object.entries(entries || {})) {
     const card = catalog[id];
     if (!card || !(count > 0)) continue;
     total += count;
-    if (!isSoul(card)) size += count;
+    size += count;
     byType[card.cardType] = (byType[card.cardType] || 0) + count;
     if (!TYPE_TOTAL_LIMITS[card.cardType] && count > copyLimitFor(card)) {
       errors.push(`"${card.title}": ${count} copies (max ${copyLimitFor(card)}).`);
@@ -68,7 +67,7 @@ export function validateDeck(entries, catalog) {
   for (const [type, cap] of Object.entries(TYPE_TOTAL_LIMITS)) {
     if ((byType[type] || 0) > cap) errors.push(`${byType[type]} ${type} cards (max ${cap} per deck).`);
   }
-  if (size > DECK_SIZE_LIMIT) errors.push(`${size} cards (max ${DECK_SIZE_LIMIT}, not counting SOUL).`);
+  if (size > DECK_SIZE_LIMIT) errors.push(`${size} cards (max ${DECK_SIZE_LIMIT}, SOUL included).`);
   if (total === 0) errors.push('The deck is empty.');
 
   return { total, size, byType, errors, valid: errors.length === 0 };

@@ -717,17 +717,7 @@
 }
 @keyframes banner-fade { 0%, 100% { opacity: 0; } 5%, 90% { opacity: 1; } }
 
-/* ---------- Enlarged card preview on hover (hand + board) ---------- */
-.card-preview-float {
-  position: fixed;
-  z-index: 45;
-  pointer-events: none;
-  filter: drop-shadow(0 0 24px rgba(0, 229, 229, 0.45)) drop-shadow(0 20px 40px rgba(0, 0, 0, 0.7));
-  animation: preview-in 0.15s ease-out both;
-}
-@keyframes preview-in { from { opacity: 0; scale: 0.92; } to { opacity: 1; scale: 1; } }
-@media (prefers-reduced-motion: reduce) { .card-preview-float { animation: none; } }
-@media (hover: none) { .card-preview-float { display: none; } }
+
 
 /* ---------- SOUL pile (left end of the hand) ---------- */
 .soul-pile {
