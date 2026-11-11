@@ -3,7 +3,7 @@ import { zoneLabel } from '../../game/zones.js';
 
 const SOUL_PIPS = 5; // minimum pips shown so the meter has a stable shape
 
-function HealthBar({ player, isMe }) {
+function HealthBar({ player, uid, isMe }) {
   if (!player) {
     return (
       <div className="pt-player empty">
@@ -19,7 +19,7 @@ function HealthBar({ player, isMe }) {
     text: d.id === 'stun' ? `Stun · ${zoneLabel(st.stun.zone).replace('Ability ', '')}` : `${d.label} ×${st[d.id]}`,
   }));
   return (
-    <div className={`pt-player ${isMe ? 'me' : 'opp'}`}>
+    <div className={`pt-player ${isMe ? 'me' : 'opp'}`} data-player-plate={uid}>
       <div className="pt-player-name">
         {player.name}{isMe && <span className="pt-you">You</span>}
       </div>
@@ -100,8 +100,8 @@ export default function PhaseTracker({ game, me }) {
       </ol>
 
       <div className="pt-players">
-        <HealthBar player={game.players[opp]} />
-        <HealthBar player={game.players[me]} isMe />
+        <HealthBar player={game.players[opp]} uid={opp} />
+        <HealthBar player={game.players[me]} uid={me} isMe />
       </div>
     </div>
   );

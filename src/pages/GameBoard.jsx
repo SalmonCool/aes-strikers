@@ -16,6 +16,7 @@ import CounterPrompt from '../components/game/CounterPrompt.jsx';
 import SetupPanel from '../components/game/SetupPanel.jsx';
 import EffectsPanel from '../components/game/EffectsPanel.jsx';
 import DiceRoll from '../components/game/DiceRoll.jsx';
+import AttackFx from '../components/game/AttackFx.jsx';
 import TurnBanner from '../components/game/TurnBanner.jsx';
 import { isMuted, playTurnChime, setMuted } from '../game/sounds.js';
 
@@ -343,6 +344,7 @@ export default function GameBoard() {
           {/* Opponent's half: same mat rotated 180° so it faces them */}
           <PlayerMat
             side="opponent"
+            owner={opp}
             playerName={oppName}
             board={opp ? game.board[opp] : {}}
             tokens={opp ? { aether: game.players[opp].aetherType, idol: game.players[opp].idolType } : {}}
@@ -358,6 +360,7 @@ export default function GameBoard() {
           <div className="board-divider" aria-hidden="true"><span /></div>
           <PlayerMat
             side="self"
+            owner={me}
             playerName={names[me]}
             board={myBoard}
             latentCards={hand.latent}
@@ -416,6 +419,7 @@ export default function GameBoard() {
 
       <TurnBanner game={game} me={me} />
       <DiceRoll rolls={game.rolls} names={names} />
+      <AttackFx attack={attack} />
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

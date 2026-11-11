@@ -26,7 +26,7 @@ const CardSlot = ({ card, className = '' }) => {
 //   clashCard:    card shown in the Strike! area (the attack or counter just played)
 //   highlight:    Map zoneId -> 'place' | 'target' | 'reveal' | 'use' | 'selected'
 export default function PlayerMat({
-  side, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [], exhausted = [],
+  side, owner, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [], exhausted = [],
   stunZone, clashCard, turnNo, highlight, onZoneClick,
 }) {
   const [hover, setHover] = useState(null); // { card, rect }
@@ -34,7 +34,7 @@ export default function PlayerMat({
   return (
     <HoverContext.Provider value={setHover}>
     {hover && <CardPreview card={hover.card} rect={hover.rect} />}
-    <section className={`player-mat ${side}`} aria-label={`${playerName}'s side`} onMouseLeave={() => setHover(null)}>
+    <section className={`player-mat ${side}`} data-owner={owner} aria-label={`${playerName}'s side`} onMouseLeave={() => setHover(null)}>
       <div className="mat-watermark" aria-hidden="true">Strike!</div>
       <div className="mat-player">{playerName}</div>
       {ZONES.map((z) => {
