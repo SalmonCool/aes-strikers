@@ -184,3 +184,57 @@
   box-shadow: 0 0 4cqw rgba(0, 229, 229, 0.35);
   display: block;
 }
+
+/* ---------- Damage feedback ---------- */
+/* Health below the card's full value: red orb, with the full value shown small underneath */
+.gc-health.damaged {
+  border-color: #ff5a7a;
+  color: #ffd0d8;
+  text-shadow: 0 0 1.5cqw rgba(255, 90, 122, 0.9);
+  box-shadow: 0 0 0 0.6cqw rgba(0, 0, 0, 0.8), 0 0 3cqw rgba(255, 90, 122, 0.8), inset 0 0 2cqw rgba(255, 90, 122, 0.4);
+  grid-template-rows: auto auto;
+  align-content: center;
+  row-gap: 0.2cqw;
+}
+.gc-health-max {
+  display: block;
+  font-size: 2.6cqw;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.6);
+  text-shadow: none;
+}
+/* Shake when hit */
+.gc-health.hit { animation: orb-hit 0.5s ease-out; }
+@keyframes orb-hit {
+  0%, 100% { translate: 0 0; }
+  15% { translate: -1.2cqw 0; scale: 1.15; }
+  30% { translate: 1.2cqw 0; }
+  45% { translate: -0.8cqw 0; }
+  60% { translate: 0.6cqw 0; }
+}
+/* Floating damage number rising from the health orb */
+.gc-damage-pop {
+  position: absolute;
+  z-index: 4;
+  left: 3cqw;
+  bottom: 10cqw;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 9cqw;
+  color: #ff5a7a;
+  text-shadow: 0 0 1cqw #000, 0 0 3cqw rgba(255, 90, 122, 0.9);
+  pointer-events: none;
+  animation: dmg-pop 1.6s ease-out forwards;
+}
+@keyframes dmg-pop {
+  0% { opacity: 0; translate: 0 2cqw; scale: 0.6; }
+  15% { opacity: 1; translate: 0 0; scale: 1.2; }
+  30% { scale: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; translate: 0 -12cqw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gc-health.hit { animation: none; }
+  .gc-damage-pop { animation: dmg-fade 1.6s linear forwards; }
+}
+@keyframes dmg-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }

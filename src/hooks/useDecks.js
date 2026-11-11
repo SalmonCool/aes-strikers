@@ -1,45 +1,69 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { adoptLooseCards, watchAllCards, watchDecks, watchProfile } from '../firebase/db.js';
-import { DEFAULT_DECKS } from '../data/defaultDecks.js';
+import { setDeckCards, watchAllCards, watchDecks, watchProfile } from '../firebase/db.js';
+import { CARD_SETS, SOUL_CARD, starterDeckCards } from '../data/cardSets.js';
+import { expandDeck, validateDeck } from '../game/deckRules.js';
 
-// All decks available to a player: the built-in example decks followed by their own decks (with cards attached),
-// plus which deck is active for play. Falls back to the first deck when none (or a deleted one) is selected.
+export const MY_CARDS_SET_ID = 'set-mine';
+
+// Read-only, ready-to-play example decks built from each built-in set.
+export const EXAMPLE_DECKS = CARD_SETS.map((s) => ({
+  id: `example-${s.id}`,
+  name: `${s.name} (Example)`,
+  builtIn: true,
+  cards: starterDeckCards(s),
+}));
+
+// Everything the deck builder and arena setup need:
+//   sets:     built-in card sets + the player's own "My Cards" set
+//   catalog:  { cardId: card } for every card that can go in a deck (incl. the SOUL card)
+//   decks:    example decks + the player's decks, each with { entries, cards (expanded), check (validation), builtIn }
+//   activeDeckId: deck used for play (falls back to the first deck)
 export default function useDecks(uid) {
   const [userDecks, setUserDecks] = useState(null);
-  const [cards, setCards] = useState(null);
+  const [myCards, setMyCards] = useState(null);
   const [profile, setProfile] = useState(null);
-  const migrating = useRef(false);
+  const migrated = useRef(new Set());
 
   useEffect(() => {
-    const unsubs = [watchDecks(uid, setUserDecks), watchAllCards(uid, setCards), watchProfile(uid, setProfile)];
+    const unsubs = [watchDecks(uid, setUserDecks), watchAllCards(uid, setMyCards), watchProfile(uid, setProfile)];
     return () => unsubs.forEach((u) => u());
   }, [uid]);
 
-  // Cards from before decks existed have no deckId: move them into a "My Cards" deck once.
+  // Decks saved before decks became "card + count" lists held their own cards (cards had a deckId).
+  // Convert each such deck once into the new format, one copy of each of its cards.
   useEffect(() => {
-    if (!cards || migrating.current) return;
-    const loose = cards.filter((c) => !c.deckId);
-    if (loose.length === 0) return;
-    migrating.current = true;
-    adoptLooseCards(uid, loose)
-      .catch((e) => console.error('Card migration failed', e))
-      .finally(() => { migrating.current = false; });
-  }, [cards, uid]);
+    if (!userDecks || !myCards) return;
+    userDecks.forEach((d) => {
+      if (d.cards || migrated.current.has(d.id)) return;
+      migrated.current.add(d.id);
+      const entries = Object.fromEntries(myCards.filter((c) => c.deckId === d.id).map((c) => [c.id, 1]));
+      setDeckCards(uid, d.id, entries).catch((e) => console.error('Deck migration failed', e));
+    });
+  }, [userDecks, myCards, uid]);
+
+  const sets = useMemo(() => [
+    ...CARD_SETS,
+    { id: MY_CARDS_SET_ID, name: 'My Cards', builtIn: false, cards: myCards || [] },
+  ], [myCards]);
+
+  const catalog = useMemo(() => {
+    const all = { [SOUL_CARD.id]: SOUL_CARD };
+    sets.forEach((s) => s.cards.forEach((c) => { all[c.id] = c; }));
+    return all;
+  }, [sets]);
 
   const decks = useMemo(() => {
-    if (!userDecks || !cards) return null;
-    const byDeck = {};
-    cards.forEach((c) => { if (c.deckId) (byDeck[c.deckId] ||= []).push(c); });
-    return [
-      ...DEFAULT_DECKS,
-      ...userDecks.map((d) => ({ ...d, isDefault: false, cards: byDeck[d.id] || [] })),
-    ];
-  }, [userDecks, cards]);
+    if (!userDecks) return null;
+    return [...EXAMPLE_DECKS, ...userDecks].map((d) => {
+      const entries = d.cards || {};
+      return { ...d, entries, cards: expandDeck(entries, catalog), check: validateDeck(entries, catalog) };
+    });
+  }, [userDecks, catalog]);
 
-  const loading = !decks || !profile;
+  const loading = !decks || !profile || !myCards;
   const activeDeckId = decks && profile
-    ? (decks.some((d) => d.id === profile.activeDeckId) ? profile.activeDeckId : decks[0].id)
+    ? (decks.some((d) => d.id === profile.activeDeckId) ? profile.activeDeckId : decks[0]?.id ?? null)
     : null;
 
-  return { decks, activeDeckId, loading };
+  return { sets, catalog, decks, activeDeckId, loading };
 }

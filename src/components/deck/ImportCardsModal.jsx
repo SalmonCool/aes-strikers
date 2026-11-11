@@ -18,7 +18,7 @@ async function fetchArt(url) {
   return compressImage(blob);
 }
 
-export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpenGuide }) {
+export default function ImportCardsModal({ uid, onClose, onOpenGuide }) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState(null); // { entries, fileError }
   const [progress, setProgress] = useState(null); // { done, total }
@@ -27,7 +27,7 @@ export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpe
 
   const valid = parsed?.entries.filter((e) => e.card) || [];
   const invalid = parsed?.entries.filter((e) => !e.card) || [];
-  const totalCopies = valid.reduce((n, e) => n + e.card.copies, 0);
+  const totalCopies = valid.length;
   const importing = progress && !result;
 
   const loadFile = async (e) => {
@@ -51,7 +51,7 @@ export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpe
     setProgress({ done: 0, total: totalCopies });
     try {
       for (const { card } of valid) {
-        const { copies, artUrl, ...fields } = card;
+        const { artUrl, ...fields } = card;
         let art = '';
         if (artUrl) {
           try {
@@ -60,11 +60,9 @@ export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpe
             warnings.push(`"${card.title}": imported without art — ${err.message}.`);
           }
         }
-        for (let i = 0; i < copies; i++) {
-          await addCard(uid, deckId, fields, art);
-          added += 1;
-          setProgress({ done: added, total: totalCopies });
-        }
+        await addCard(uid, fields, art);
+        added += 1;
+        setProgress({ done: added, total: totalCopies });
       }
     } catch (err) {
       console.error(err);
@@ -76,7 +74,7 @@ export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpe
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !importing && onClose()}>
       <div className="panel modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="import-title">
-        <h2 id="import-title">Import Cards into “{deckName}”</h2>
+        <h2 id="import-title">Import Cards into My Cards</h2>
 
         {!result && (
           <>
@@ -113,7 +111,7 @@ export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpe
                   <span className="import-mark" aria-hidden="true">{e.card ? '✓' : '✕'}</span>
                   <span className="import-name">
                     {e.label}
-                    {e.card && <small>{e.card.cardType}: {e.card.typeAction} · {e.card.aetherType}/{e.card.idolType}{e.card.copies > 1 ? ` · ×${e.card.copies}` : ''}{e.card.artUrl ? ' · art' : ''}</small>}
+                    {e.card && <small>{e.card.cardType}: {e.card.typeAction} · {e.card.aetherType}/{e.card.idolType}{e.card.artUrl ? ' · art' : ''}</small>}
                     {e.errors.map((err) => <small key={err} className="import-err">{err}</small>)}
                   </span>
                 </li>
@@ -131,7 +129,7 @@ export default function ImportCardsModal({ uid, deckId, deckName, onClose, onOpe
 
         {result && (
           <div className="import-result">
-            <p className="ui-msg info">Added {result.added} card{result.added === 1 ? '' : 's'} to “{deckName}”.</p>
+            <p className="ui-msg info">Added {result.added} card{result.added === 1 ? '' : 's'} to My Cards. Add them to a deck from the Decks tab.</p>
             {result.warnings.length > 0 && (
               <ul className="import-warnings">{result.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
             )}

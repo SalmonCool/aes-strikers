@@ -65,6 +65,17 @@ function FittedText({ text }) {
 // `artUrl` (e.g. a local preview) takes priority over the saved `art` reference.
 export default function Card({ card, children }) {
   const { title, cardType, typeAction, description, soulCost, health, damage, aetherType, idolType } = card;
+
+  // Damage feedback: when health drops while this card is on screen, show a floating "−X" and shake the orb.
+  // (State is adjusted during render — React's recommended pattern for reacting to a prop change.)
+  const [prevHealth, setPrevHealth] = useState(health);
+  const [hit, setHit] = useState(null); // { amount, n }
+  if (health !== prevHealth) {
+    if (health < prevHealth) setHit((h) => ({ amount: prevHealth - health, n: (h?.n || 0) + 1 }));
+    setPrevHealth(health);
+  }
+  const maxHealth = card.baseHealth ?? health;
+  const damaged = health < maxHealth;
   const savedArt = useCardArt(card.artUrl ? null : card.art);
   const artUrl = card.artUrl || savedArt;
 
@@ -94,8 +105,16 @@ export default function Card({ card, children }) {
           <div className="gc-art-window">
             {artUrl && <img src={artUrl} alt="" draggable="false" style={cropStyle(card.artCrop)} />}
           </div>
-          <span className="gc-orb gc-health" title="Health">{health}{card.healthPlus && <sup>+</sup>}</span>
-          <span className="gc-orb gc-damage" title="Damage">{damage}{card.damagePlus && <sup>+</sup>}</span>
+          <span
+            key={hit ? `hit-${hit.n}` : 'health'}
+            className={`gc-orb gc-health ${damaged ? 'damaged' : ''} ${hit ? 'hit' : ''}`}
+            title={damaged ? `Health ${health} of ${maxHealth}` : 'Health'}
+          >
+            <span>{health}{card.healthPlus && <sup>+</sup>}</span>
+            {damaged && <span className="gc-health-max">/{maxHealth}</span>}
+          </span>
+          {hit && <span key={`dmg-${hit.n}`} className="gc-damage-pop" aria-hidden="true">−{hit.amount}</span>}
+          <span className="gc-orb gc-damage" title="Damage"><span>{damage}{card.damagePlus && <sup>+</sup>}</span></span>
         </div>
 
         <div className="gc-type">

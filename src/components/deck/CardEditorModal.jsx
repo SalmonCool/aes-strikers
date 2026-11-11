@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AETHER_TYPES, CARD_TYPES, EMPTY_CARD, IDOL_TYPES, TYPE_ACTIONS, addCard, updateCard,
+  AETHER_TYPES, CARD_TYPES, EMPTY_CARD, IDOL_TYPES, STATUS_IDS, TYPE_ACTIONS, addCard, updateCard,
 } from '../../firebase/db.js';
 import { DEFAULT_CROP, MAX_ART_UPLOAD_BYTES, compressImage, loadArt } from '../../firebase/cardArt.js';
 import Card from '../Card.jsx';
 import ArtCropper from './ArtCropper.jsx';
+import { hasNoHealth } from '../../game/zones.js';
 
 function Select({ id, label, value, onChange, options }) {
   return (
@@ -17,11 +18,11 @@ function Select({ id, label, value, onChange, options }) {
   );
 }
 
-function NumberField({ id, label, value, onChange }) {
+function NumberField({ id, label, value, onChange, disabled }) {
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
-      <input id={id} type="number" min={0} max={9999} className="ui-input" value={value} onChange={onChange} />
+      <input id={id} type="number" min={0} max={9999} className="ui-input" value={value} onChange={onChange} disabled={disabled} />
     </div>
   );
 }
@@ -31,6 +32,9 @@ const editableFields = (c) => ({
   cardType: c.cardType || EMPTY_CARD.cardType,
   typeAction: c.typeAction ?? EMPTY_CARD.typeAction,
   healthPlus: Boolean(c.healthPlus),
+  inflictStatus: c.inflictStatus || '',
+  inflictStacks: c.inflictStacks || 1,
+  inflictOn: c.inflictOn || 'hit',
   damagePlus: Boolean(c.damagePlus),
   description: c.description || '',
   soulCost: c.soulCost ?? 0,
@@ -43,7 +47,7 @@ const editableFields = (c) => ({
 });
 
 // Create a new card (existing = null) or edit an existing one, including its art and crop.
-export default function CardEditorModal({ uid, deckId, existing, onClose }) {
+export default function CardEditorModal({ uid, existing, onClose }) {
   const isEdit = Boolean(existing);
   const [card, setCard] = useState(() => editableFields(existing || EMPTY_CARD));
   const [artSrc, setArtSrc] = useState(''); // what the cropper/preview shows
@@ -101,7 +105,7 @@ export default function CardEditorModal({ uid, deckId, existing, onClose }) {
     setError('');
     try {
       if (isEdit) await updateCard(uid, existing, card, artChange);
-      else await addCard(uid, deckId, card, artChange || '');
+      else await addCard(uid, card, artChange || '');
       onClose();
     } catch (err) {
       console.error(err);
@@ -132,12 +136,29 @@ export default function CardEditorModal({ uid, deckId, existing, onClose }) {
             </div>
             <div className="field-row three">
               <NumberField id="card-soul" label="SOUL Cost" value={card.soulCost} onChange={set('soulCost')} />
-              <NumberField id="card-health" label="Health" value={card.health} onChange={set('health')} />
+              <NumberField id="card-health" label={hasNoHealth(card) ? 'Health (none: Attack Cast)' : 'Health'} value={hasNoHealth(card) ? 0 : card.health} onChange={set('health')} disabled={hasNoHealth(card)} />
               <NumberField id="card-damage" label="Damage" value={card.damage} onChange={set('damage')} />
             </div>
             <div className="field-row">
               <NumberField id="card-block" label="Block (Defend / Body Armor)" value={card.block} onChange={set('block')} />
               <p className="field-help">Defend cards block this much when used as a COUNTER!. Body Armor reduces direct damage by this much.</p>
+            </div>
+            <div className="field-row three">
+              <div className="field">
+                <label htmlFor="card-inflict">Applies Status</label>
+                <select id="card-inflict" className="ui-select" value={card.inflictStatus} onChange={set('inflictStatus')}>
+                  <option value="">(none)</option>
+                  {STATUS_IDS.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
+                </select>
+              </div>
+              <NumberField id="card-inflict-stacks" label="Stacks" value={card.inflictStacks} onChange={set('inflictStacks')} />
+              <div className="field">
+                <label htmlFor="card-inflict-on">When</label>
+                <select id="card-inflict-on" className="ui-select" value={card.inflictOn} onChange={set('inflictOn')} disabled={!card.inflictStatus}>
+                  <option value="hit">Its damage lands</option>
+                  <option value="direct">Direct attack declared</option>
+                </select>
+              </div>
             </div>
             <div className="check-row">
               <label><input type="checkbox" checked={card.healthPlus} onChange={(e) => setCard((c) => ({ ...c, healthPlus: e.target.checked }))} /> Health is variable (shows “+”)</label>
@@ -176,7 +197,7 @@ export default function CardEditorModal({ uid, deckId, existing, onClose }) {
             </div>
           </form>
           <div className="card-preview" aria-label="Live preview">
-            <Card card={{ ...card, art: null, artUrl: artSrc }} />
+            <Card card={{ ...card, health: hasNoHealth(card) ? 0 : card.health, art: null, artUrl: artSrc }} />
           </div>
         </div>
       </div>

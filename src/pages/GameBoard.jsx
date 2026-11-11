@@ -3,11 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { joinSession, watchSession } from '../firebase/db.js';
 import {
-  affinityOk, applyStatus, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
-  endPhase, isSoulCard, opponentOf, placeCard, playCounter, removeStatus, resolveWithoutCounter, revealLatent,
-  rollDieForCard, setupReady, soulInHand, startReady, validZonesFor, watchHand, watchLog,
+  affinityOk, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
+  endPhase, isSoulCard, opponentOf, placeCard, playCounter, resolveWithoutCounter, revealLatent,
+  setupReady, soulInHand, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
-import { LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
+import { ABILITY_ZONES, LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
 import PlayerMat from '../components/PlayerMat.jsx';
 import PhaseTracker from '../components/game/PhaseTracker.jsx';
 import EventLog from '../components/game/EventLog.jsx';
@@ -15,6 +15,7 @@ import Hand from '../components/game/Hand.jsx';
 import CounterPrompt from '../components/game/CounterPrompt.jsx';
 import SetupPanel from '../components/game/SetupPanel.jsx';
 import EffectsPanel from '../components/game/EffectsPanel.jsx';
+import DiceRoll from '../components/game/DiceRoll.jsx';
 import TurnBanner from '../components/game/TurnBanner.jsx';
 import { isMuted, playTurnChime, setMuted } from '../game/sounds.js';
 
@@ -175,7 +176,7 @@ export default function GameBoard() {
   const counterReady = countering && selectionUsable && (selectedCard.cardType === 'Attack' || selectedCard.cardType === 'Defend');
 
   const myHighlight = useMemo(() => {
-    const m = new Map(placeZones.map((z) => [z, 'place']));
+    const m = new Map(placeZones.map((z) => [z, myBoard[z] ? 'replace' : 'place']));
     LATENT_ZONES.forEach((z) => {
       const c = myBoard[z];
       if (!c) return;
@@ -208,6 +209,8 @@ export default function GameBoard() {
 
   const onMyZone = (zone) => {
     if (placeZones.includes(zone)) {
+      const replacing = myBoard[zone];
+      if (replacing && !window.confirm(`Replace "${replacing.title}" with "${selectedCard.title}"? "${replacing.title}" will be discarded.`)) return;
       run(placeCard(sessionId, me, sel.iid, zone));
       setSel(null);
       return;
@@ -216,9 +219,18 @@ export default function GameBoard() {
     if (c?.faceDown && canReveal) run(revealLatent(sessionId, me, zone));
     else if (usableLatent(zone)) setSel(sel?.from === 'board' && sel.zone === zone ? null : { from: 'board', zone });
   };
-  const onTarget = (target) => {
-    run(declareAttack(sessionId, me, source, target));
+  // A stunning attack lets the attacker pick which of the opponent's Ability slots to restrict.
+  const [stunAsk, setStunAsk] = useState(null); // pending target while choosing a Stun slot
+  const stuns = (card, target) =>
+    card?.inflictStatus === 'stun' && (card.inflictOn !== 'direct' || target.kind === 'player');
+  const onTarget = (target, stunZone) => {
+    if (!stunZone && stuns(selectedCard, target)) {
+      setStunAsk(target);
+      return;
+    }
+    run(declareAttack(sessionId, me, source, target, { stunZone }));
     setSel(null);
+    setStunAsk(null);
   };
 
   const onCounterTimeout = useCallback(
@@ -226,12 +238,6 @@ export default function GameBoard() {
     [attack, sessionId, me, run],
   );
 
-  const effectActions = useMemo(() => ({
-    apply: (target, id, zone) => applyStatus(sessionId, me, target, id, zone),
-    remove: (target, id) => removeStatus(sessionId, me, target, id),
-    detonate: (target, id) => detonateStatus(sessionId, me, target, id),
-    rollDie: () => rollDieForCard(sessionId, me),
-  }), [sessionId, me]);
 
   // ----- Render guards -----
   if (error) return <Notice title="Arena Unavailable" text={error} />;
@@ -260,6 +266,9 @@ export default function GameBoard() {
     else if (canPlaceNow && isCastCard(selectedCard)) selectionHint = `${selectedCard.cardType} cards are cast during STRIKE! or COUNTER!, not equipped.`;
     else if (canPlaceNow && placeZones.length === 0) selectionHint = `No open zone for "${selectedCard.title}".`;
     else if (canPlaceNow && isLatentCard(selectedCard)) selectionHint = 'Latent card: place it face-down in a glowing Latent slot. SOUL is paid now.';
+    else if (canPlaceNow && selectedCard.cardType === 'Ability' && placeZones.some((z) => myBoard[z])) {
+      selectionHint = 'Ability: place it in an empty slot, or click an orange slot to replace that Ability (the old one is discarded).';
+    }
   }
 
   // ----- Action bar: hint + buttons for the current situation -----
@@ -292,6 +301,17 @@ export default function GameBoard() {
   } else if (myTurn && game.phase === 'equip') {
     hint = 'Equip phase: select a card, then click a glowing zone. Latent cards go face-down.';
     buttons.push(<button key="next" className="ui-btn primary" onClick={() => run(endPhase(sessionId, me))}>Go to STRIKE!</button>);
+  } else if (inMyStrike && stunAsk && targeting) {
+    hint = `"${selectedCard.title}" stuns: choose which of ${oppName}'s Ability slots to restrict.`;
+    ABILITY_ZONES.forEach((z, i) => {
+      const held = game.board[opp]?.[z];
+      buttons.push(
+        <button key={z} className="ui-btn primary" onClick={() => onTarget(stunAsk, z)}>
+          Slot {i + 1}{held?.title ? ` — ${held.title}` : ' (empty)'}
+        </button>,
+      );
+    });
+    buttons.push(<button key="cancel" className="ui-btn" onClick={() => setStunAsk(null)}>Cancel</button>);
   } else if (inMyStrike) {
     hint = targeting
       ? 'Choose a target: a glowing enemy card, or strike the player directly.'
@@ -328,6 +348,7 @@ export default function GameBoard() {
             tokens={opp ? { aether: game.players[opp].aetherType, idol: game.players[opp].idolType } : {}}
             deckCount={opp ? game.players[opp].deckCount : 0}
             discard={opp ? game.discard[opp] : []}
+            exhausted={opp ? game.exhausted?.[opp] : []}
             stunZone={opp ? game.players[opp].status?.stun?.zone : null}
             clashCard={opp ? clashFor(opp) : null}
             turnNo={game.turnNo}
@@ -343,6 +364,7 @@ export default function GameBoard() {
             tokens={{ aether: player?.aetherType, idol: player?.idolType }}
             deckCount={hand.deck.length}
             discard={game.discard[me]}
+            exhausted={game.exhausted?.[me]}
             stunZone={player?.status?.stun?.zone}
             clashCard={clashFor(me)}
             turnNo={game.turnNo}
@@ -367,7 +389,12 @@ export default function GameBoard() {
       </main>
 
       <aside className="arena-side right">
-        <EffectsPanel game={game} me={me} run={run} actions={effectActions} />
+        <EffectsPanel
+          game={game}
+          me={me}
+          canDetonate={inMyStrike}
+          onDetonate={(id) => run(detonateStatus(sessionId, me, id))}
+        />
         <EventLog entries={log} />
       </aside>
 
@@ -388,6 +415,7 @@ export default function GameBoard() {
       )}
 
       <TurnBanner game={game} me={me} />
+      <DiceRoll rolls={game.rolls} names={names} />
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

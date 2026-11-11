@@ -1,5 +1,7 @@
-// Built-in example decks (20 cards + 10 SOUL resource cards each), transcribed from "Linx, Veil Walker Set V.1.pdf" and "Dremur Deck V.1.pdf".
-// These ship with the app (not stored in Firestore), so players can play with them but not edit them.
+// Built-in card sets, transcribed from "Linx, Veil Walker Set V.1.pdf" and "Dremur Deck V.1.pdf".
+// Players build decks by choosing cards (and copy counts) from these sets, their own "My Cards" set,
+// and the universal SOUL resource card. Sets ship with the app (not Firestore), so they're read-only.
+// Card ids are kept stable ("default-linx-01"...) because saved decks reference them.
 // Stats shown as "20+" on the printed card are stored as the base number with damagePlus/healthPlus = true.
 
 // Block values, taken from each card's "Reduce incoming/direct damage by X" text.
@@ -22,16 +24,33 @@ const card = (deckId, aetherType, idolType) => (index, title, cardType, typeActi
   description,
   healthPlus: false,
   damagePlus: false,
+  inflictStatus: '',
+  inflictStacks: 1,
+  inflictOn: 'hit',
   art: null,
   readOnly: true,
   ...extra,
 });
 
-// SOUL resource cards: held in hand and discarded to pay a card's SOUL cost (1 SOUL card = 1 SOUL).
-const SOUL_PER_DECK = 10;
-const SOUL_TEXT = 'Resource card. Discard this card from your hand to pay 1 SOUL when playing a card.';
-const soulCards = (make, startIndex) =>
-  Array.from({ length: SOUL_PER_DECK }, (_, i) => make(startIndex + i, 'SOUL', 'Soul', '', 0, 0, 0, SOUL_TEXT));
+// The universal SOUL resource card: held in hand and discarded to pay a card's SOUL cost (1 SOUL card = 1 SOUL).
+// It has no Aether/Idol affinity and can be added to any deck.
+export const SOUL_CARD = {
+  id: 'soul',
+  title: 'SOUL',
+  cardType: 'Soul',
+  typeAction: '',
+  soulCost: 0,
+  health: 0,
+  damage: 0,
+  block: 0,
+  aetherType: '',
+  idolType: '',
+  description: 'Resource card. Discard this card from your hand to pay 1 SOUL when playing a card.',
+  healthPlus: false,
+  damagePlus: false,
+  art: null,
+  readOnly: true,
+};
 
 const L = card('default-linx', 'Wind', 'Disgust');
 const D = card('default-dremur', 'Earth', 'Happiness');
@@ -55,9 +74,9 @@ const LINX_CARDS = [
     'When an attack is fully blocked or countered, refund one SOUL! card from the selected attack to your hand.'),
   L(9, 'Purrgatory', 'Spatial', '', 0, 50, 10,
     'If you have the "Purge" status effect, increase damage done by 10.'),
-  L(10, 'Strikethrough', 'Attack', 'Cast', 3, 50, 70,
+  L(10, 'Strikethrough', 'Attack', 'Cast', 3, 0, 70,
     'Deal 70 damage. If the opponent declares COUNTER!, deal 30 damage directly to the opponent. This additional damage ignores the COUNTER! interaction and cannot be increased.'),
-  L(11, 'Springboard', 'Attack', 'Cast', 1, 50, 20,
+  L(11, 'Springboard', 'Attack', 'Cast', 1, 0, 20,
     'Deal 20 damage. If there is a "Nail" card in play, deal an additional 20 damage.', { damagePlus: true }),
   L(12, 'Nail', 'Attack', 'Latent', 2, 40, 40,
     'Nail: When this card is in play, reduce the SOUL! cost of attacks by 1. When this card is discarded, draw a card.\n-Detonate: On the caster\'s STRIKE! phase they can choose to discard this card. If this is done, deal 40 damage directly. This damage cannot be boosted or negated.'),
@@ -105,7 +124,7 @@ const DREMUR_CARDS = [
     'Diamond Carapace: Reduce incoming direct damage by 80. If incoming damage exceeds 80, take 30 damage instead and discard a card.'),
   D(11, 'Refraction', 'Defend', 'Cast', 1, 40, 20,
     'Reduce incoming damage by 40. When damage exceeds 40, deal 20 damage to all opponent\'s equip cards.'),
-  D(12, 'Churning Constriction', 'Attack', 'Cast', 2, 50, 0,
+  D(12, 'Churning Constriction', 'Attack', 'Cast', 2, 0, 0,
     'Deal X damage. If the target has the stun status, discard a random card from their hand and deal 10 damage to all of the opponent\'s equip cards.'),
   D(13, 'Summon Inty', 'Attack', 'Latent', 1, 80, 40,
     'During the STRIKE! phase, freely apply 40 damage. Increase this card\'s damage by 10 each time it is attacked.',
@@ -114,7 +133,8 @@ const DREMUR_CARDS = [
     'Deal 50 damage. If the opponent has active "Body Armor", deal 30 to the "Body Armor". If "Chain of Command-Inty" is in play, increase damage dealt to "Body Armor" by 10.',
     { damagePlus: true }),
   D(15, 'Reckless Lunge', 'Attack', 'Cast', 1, 0, 40,
-    'Deal 40 damage. Inflict stun if a direct attack is declared. Discard a card from your hand and search your deck for a "Churning Constriction" card.'),
+    'Deal 40 damage. Inflict stun if a direct attack is declared. Discard a card from your hand and search your deck for a "Churning Constriction" card.',
+    { inflictStatus: 'stun', inflictOn: 'direct' }),
   D(16, 'Chain of Command: Gravity', 'Spatial', '', 0, 0, 0,
     'Any player suffering the "Stun" status loses an extra card on dice roll.'),
   D(17, 'Maxees!', 'Incantation', '', 0, 0, 0,
@@ -127,10 +147,14 @@ const DREMUR_CARDS = [
     'Each player draws 1 additional card during their draw phase.'),
 ];
 
-export const DEFAULT_DECKS = [
-  { id: 'default-linx', name: 'Linx, Veil Walker', isDefault: true, cards: [...LINX_CARDS, ...soulCards(L, 21)] },
-  { id: 'default-dremur', name: 'Dremur', isDefault: true, cards: [...DREMUR_CARDS, ...soulCards(D, 21)] },
+export const CARD_SETS = [
+  { id: 'set-linx', name: 'Linx, Veil Walker', builtIn: true, aetherType: 'Wind', idolType: 'Disgust', cards: LINX_CARDS },
+  { id: 'set-dremur', name: 'Dremur', builtIn: true, aetherType: 'Earth', idolType: 'Happiness', cards: DREMUR_CARDS },
 ];
 
-export const isDefaultDeckId = (id) => DEFAULT_DECKS.some((d) => d.id === id);
-export const getDefaultDeck = (id) => DEFAULT_DECKS.find((d) => d.id === id) || null;
+// Starter deck recipe for a set: one copy of every card plus SOUL.
+export const STARTER_SOUL = 10;
+export const starterDeckCards = (set) => ({
+  ...Object.fromEntries(set.cards.map((c) => [c.id, 1])),
+  [SOUL_CARD.id]: STARTER_SOUL,
+});

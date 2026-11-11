@@ -1,10 +1,9 @@
 // The AES Strikers card JSON format, used for bulk import.
 // This file is the single source of truth for the format guide, the validator, and the AI prompt.
-import { AETHER_TYPES, CARD_TYPES, IDOL_TYPES, TYPE_ACTIONS } from '../firebase/db.js';
+import { AETHER_TYPES, CARD_TYPES, IDOL_TYPES, STATUS_IDS, TYPE_ACTIONS } from '../firebase/db.js';
 
 export const FORMAT_ID = 'aes-strikers-cards';
 export const FORMAT_VERSION = 1;
-export const MAX_COPIES = 20;
 export const MAX_IMPORT_CARDS = 200;
 
 // kind: 'string' | 'number' | 'enum' | 'url'
@@ -27,6 +26,12 @@ export const CARD_FIELDS = [
     description: 'true if the printed health is variable and shows a "+", e.g. "40+".' },
   { key: 'damagePlus', kind: 'boolean', required: false, default: false,
     description: 'true if the printed damage is variable and shows a "+", e.g. "20+".' },
+  { key: 'inflictStatus', kind: 'enum', required: false, default: '', values: STATUS_IDS,
+    description: 'Status this card applies to the opponent when it attacks (applied automatically by the game). Leave empty for none.' },
+  { key: 'inflictStacks', kind: 'number', required: false, default: 1, min: 1, max: 3,
+    description: 'How many stacks of inflictStatus to apply (statuses still cap at their max).' },
+  { key: 'inflictOn', kind: 'enum', required: false, default: 'hit', values: ['hit', 'direct'],
+    description: '"hit": apply when the attack\'s damage lands. "direct": apply as soon as a direct attack on the player is declared.' },
   { key: 'aetherType', kind: 'enum', required: true, values: AETHER_TYPES,
     description: 'Elemental Aether affinity. Upper word in the top-right circle.' },
   { key: 'idolType', kind: 'enum', required: true, values: IDOL_TYPES,
@@ -35,8 +40,6 @@ export const CARD_FIELDS = [
     description: 'Rules text shown in the description box. Use \\n for line breaks.' },
   { key: 'artUrl', kind: 'url', required: false, default: '',
     description: 'Optional link to the primary card art (https:// image URL or data:image URL). The host must allow cross-origin downloads; otherwise the card imports without art and you can add art later.' },
-  { key: 'copies', kind: 'number', required: false, default: 1, min: 1, max: MAX_COPIES,
-    description: `How many copies of this card to add to your collection (1–${MAX_COPIES}).` },
 ];
 
 export const EXAMPLE_FILE = {
@@ -54,7 +57,6 @@ export const EXAMPLE_FILE = {
       idolType: 'Disgust',
       description: 'After 3 turns of this card being in play, return your "Armor Set" to an active state and discard this card.',
       artUrl: '',
-      copies: 1,
     },
     {
       title: 'Ember Lance',
@@ -67,7 +69,6 @@ export const EXAMPLE_FILE = {
       aetherType: 'Fire',
       idolType: 'Anger',
       description: 'Deal 40 damage to a target with health.',
-      copies: 2,
     },
   ],
 };
@@ -171,14 +172,16 @@ ${fieldLines}
 - Do not invent extra fields. Omit optional fields you have no value for (or use the default).
 - Numbers must be plain integers, not strings.
 - Keep "title" at 40 characters or fewer and "description" at 300 characters or fewer.
-- Maximum ${MAX_IMPORT_CARDS} cards per file.
+- Maximum ${MAX_IMPORT_CARDS} cards per file. List each distinct card once; copy counts are chosen later when building a deck.
 
 GAME CONTEXT (to help you choose sensible values)
 - Attack and Defend cards are cast from hand. Both can be played during COUNTER!: Attack cards subtract their "damage" from incoming damage, Defend cards subtract their "block".
+- Attack cards with typeAction "Cast" have no health: always use 0 for their "health".
 - Cards with typeAction "Latent" are set face-down (SOUL paid then) and revealed later.
 - Shields absorb direct damage with their health; Body Armor reduces direct damage by its "block".
 - A player can only play cards matching their chosen Aether and Idol types.
 - "Soul" cards are resources: to play a card, the player discards SOUL cards from their hand equal to its "soulCost". A SOUL resource card itself uses cardType "Soul", no typeAction, and 0 for every number.
+- Deck building: up to 4 copies per Attack, Defend and Ability card, 3 per Incantation, 2 per Spatial, and only 1 Body Armor per deck. Body Armor that leaves play is exhausted, not reshuffled.
 - Players start with 400 health. Attacks are declared with "Attack" cards during the STRIKE! phase and deal their "damage".
 - The defender may COUNTER! with an "Attack" card; its damage is subtracted from the incoming damage.
 - Only cards with "health" above 0 can be targeted by attacks.

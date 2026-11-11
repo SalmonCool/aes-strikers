@@ -50,3 +50,6 @@ export function zoneAccepts(zoneId, card) {
 
 // Attack and Defend cards (non-Latent) are cast from hand during STRIKE! / COUNTER!, never placed.
 export const isCastCard = (c) => !isLatentCard(c) && (c.cardType === 'Attack' || c.cardType === 'Defend');
+
+// Attack: Cast cards are spent the moment they're played, so they never have health.
+export const hasNoHealth = (c) => c.cardType === 'Attack' && c.typeAction === 'Cast';

@@ -26,7 +26,7 @@ const CardSlot = ({ card, className = '' }) => {
 //   clashCard:    card shown in the Strike! area (the attack or counter just played)
 //   highlight:    Map zoneId -> 'place' | 'target' | 'reveal' | 'use' | 'selected'
 export default function PlayerMat({
-  side, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [],
+  side, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [], exhausted = [],
   stunZone, clashCard, turnNo, highlight, onZoneClick,
 }) {
   const [hover, setHover] = useState(null); // { card, rect }
@@ -83,6 +83,10 @@ export default function PlayerMat({
           content = hidden
             ? <><CardSlot card={hidden} className="face-down-own" /><span className="zone-count">Face-down</span></>
             : <div className="card-back" />;
+        } else if (z.id === 'body-armor' && !item && exhausted.some((c) => c.cardType === 'Body Armor')) {
+          // Body Armor that left play stays visible here, exhausted, so both players know it's gone for good
+          const spent = exhausted.filter((c) => c.cardType === 'Body Armor').at(-1);
+          content = <><CardSlot card={spent} className="exhausted" /><span className="zone-count">Exhausted</span></>;
         } else if (item) {
           filled = true;
           content = (

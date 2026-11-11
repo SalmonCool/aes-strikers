@@ -8,14 +8,16 @@
 //     status: { burn 0-3, purge 0-3, freeze 0-2, frostbite 0-1, stun: null | { zone, by } }
 //   board:   { [uid]: { [zoneId]: card | { faceDown: true } , incantation: card[] } }
 //   discard: { [uid]: card[] }
+//   exhausted: { [uid]: card[] }   (Body Armor that left play: never reshuffled into the deck)
 //   attack:  null | { id, by, defender, card, fromLatent, damage, target, targetTitle, status: 'open'|'countering', at }
 //   clash:   null | { by, defender, attackCard, counterCard }   (shown in the Strike! areas until the turn ends)
+//   rolls:   [{ id, by, value, reason, outcome, at }]   (most recent die rolls, animated on both screens)
 // Private state (only the owner can read): sessions/{id}/hands/{uid}
 //   { deck: card[], hand: card[], dealt, latent: { [zoneId]: card } }   (latent = the real face-down cards)
 // Event log: sessions/{id}/log/{auto}  { text, kind, uid, at }
 import { collection, doc, limitToLast, onSnapshot, orderBy, query, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
-import { ABILITY_ZONES, LATENT_ZONES, MAX_INCANTATIONS, PLAYABLE_ZONES, isLatentCard, zoneAccepts, zoneLabel } from './zones.js';
+import { ABILITY_ZONES, LATENT_ZONES, MAX_INCANTATIONS, PLAYABLE_ZONES, hasNoHealth, isLatentCard, zoneAccepts, zoneLabel } from './zones.js';
 
 export const STARTING_HEALTH = 400;
 export const OPENING_HAND = 6;
@@ -73,6 +75,7 @@ export const newGame = (hostUid, hostName) => ({
   players: { [hostUid]: newPlayer(hostName) },
   board: { [hostUid]: {} },
   discard: { [hostUid]: [] },
+  exhausted: { [hostUid]: [] },
   attack: null,
   clash: null,
 });
@@ -118,6 +121,8 @@ export function validZonesFor(game, uid, card) {
     if (z === 'incantation') {
       return (board.incantation || []).length < MAX_INCANTATIONS && player.incantationTurn !== game.turnNo;
     }
+    // Abilities may replace an Ability already in play (still max 2 slots); the old one is discarded
+    if (ABILITY_ZONES.includes(z) && game.phase === 'equip') return true;
     return !board[z];
   });
 }
@@ -131,7 +136,16 @@ function shuffle(arr) {
   return a;
 }
 
-const rollDie = () => 1 + Math.floor(Math.random() * 6);
+const MAX_ROLLS_KEPT = 6;
+// Rolls a die for a card or status effect. Each roll is recorded on the game so both
+// players' screens can show the dice animation. outcome(value) describes what the roll did.
+function rollDie(ctx, uid, reason, outcome) {
+  const value = 1 + Math.floor(Math.random() * 6);
+  const rolls = (ctx.game.rolls ||= []);
+  rolls.push({ id: crypto.randomUUID(), by: uid, value, reason, outcome: outcome ? outcome(value) : '', at: Date.now() });
+  if (rolls.length > MAX_ROLLS_KEPT) rolls.splice(0, rolls.length - MAX_ROLLS_KEPT);
+  return value;
+}
 
 // Copy of a deck card for use in a match (each copy gets a unique instance id).
 const toPlayable = (c) => ({
@@ -142,8 +156,8 @@ const toPlayable = (c) => ({
   typeAction: c.typeAction || '',
   description: c.description || '',
   soulCost: Number(c.soulCost) || 0,
-  health: Number(c.health) || 0,
-  baseHealth: Number(c.health) || 0,
+  health: hasNoHealth(c) ? 0 : Number(c.health) || 0,
+  baseHealth: hasNoHealth(c) ? 0 : Number(c.health) || 0,
   damage: Number(c.damage) || 0,
   block: Number(c.block) || 0,
   healthPlus: Boolean(c.healthPlus),
@@ -152,6 +166,9 @@ const toPlayable = (c) => ({
   idolType: c.idolType,
   art: c.art || null,
   artCrop: c.artCrop || null,
+  inflictStatus: c.inflictStatus || '',
+  inflictStacks: Number(c.inflictStacks) || 1,
+  inflictOn: c.inflictOn || 'hit',
 });
 
 // Reset in-play state when a card returns to the deck from the discard pile.
@@ -210,6 +227,16 @@ const takeFromHand = (ctx, iid) => {
 };
 
 const pushDiscard = (ctx, uid, card) => (ctx.game.discard[uid] ||= []).push(card);
+
+// A card leaving play: Body Armor is exhausted (out of the game for good); everything else is discarded.
+function removeFromPlay(ctx, uid, card) {
+  if (card.cardType === 'Body Armor') {
+    ((ctx.game.exhausted ||= {})[uid] ||= []).push(card);
+    ctx.log(`"${card.title}" is exhausted and will not return to the deck.`, 'damage');
+  } else {
+    pushDiscard(ctx, uid, card);
+  }
+}
 
 const ensureStatus = (game, uid) => {
   const p = game.players[uid];
@@ -294,6 +321,7 @@ export function setupReady(sid, uid, deckCards, aetherType, idolType) {
     ctx.hand = { deck, hand: [], dealt: false, latent: {} };
     game.board[uid] = { incantation: [] };
     game.discard[uid] = [];
+    (game.exhausted ||= {})[uid] = [];
     Object.assign(game.players[uid], { aetherType, idolType, ready: true, status: emptyStatus() });
     ctx.log(`${ctx.name(uid)} set their tokens — Aether: ${aetherType}, Idol: ${idolType} — and shuffled a ${deck.length}-card deck.`);
 
@@ -377,8 +405,16 @@ export function placeCard(sid, uid, iid, zoneId) {
       ctx.log(`${ctx.name(uid)} played Incantation "${card.title}" (${n}/${MAX_INCANTATIONS}).`);
       if (n === MAX_INCANTATIONS) ctx.log(`${ctx.name(uid)}'s Incantations awaken — all ${MAX_INCANTATIONS} are now in effect!`, 'phase');
     } else {
+      const replaced = board[zoneId];
+      if (replaced) {
+        removeFromPlay(ctx, uid, replaced);
+        ctx.log(`${ctx.name(uid)} replaced "${replaced.title}" with "${card.title}" in ${zoneLabel(zoneId)}. "${replaced.title}" was discarded.`);
+      } else {
+        ctx.log(`${ctx.name(uid)} equipped "${card.title}" to ${zoneLabel(zoneId)}.`);
+      }
       board[zoneId] = card;
-      ctx.log(`${ctx.name(uid)} equipped "${card.title}" to ${zoneLabel(zoneId)}.`);
+      runEquipEffect(ctx, uid, card);
+      checkDefeat(ctx);
     }
   }, { withHand: true });
 }
@@ -423,7 +459,7 @@ function startTurnEffects(ctx, uid) {
   if (s.burn > 0) damagePlayer(ctx, uid, s.burn * STATUS_DAMAGE_PER_STACK, `Burn ×${s.burn}`);
   if (s.purge > 0) damagePlayer(ctx, uid, s.purge * STATUS_DAMAGE_PER_STACK, `Purge ×${s.purge}`);
   if (s.freeze > 0) {
-    const r = rollDie();
+    const r = rollDie(ctx, uid, 'Freeze', (v) => (v % 2 === 0 ? 'Even — one Freeze stack thaws' : 'Odd — Freeze holds'));
     if (r % 2 === 0) {
       s.freeze -= 1;
       ctx.log(`${ctx.name(uid)} rolls ${r} (even) — one Freeze stack thaws (${s.freeze} left).`, 'dice');
@@ -516,7 +552,8 @@ const targetLabel = (ctx, defender, target) =>
     : `${ctx.name(defender)}'s "${ctx.game.board[defender][target.zone]?.title}"`;
 
 // target: { kind: 'player' } | { kind: 'card', zone }
-export function declareAttack(sid, uid, source, target) {
+// opts.stunZone: Ability slot the attacker chooses to restrict when the card stuns.
+export function declareAttack(sid, uid, source, target, opts = {}) {
   return act(sid, uid, (ctx) => {
     const { game } = ctx;
     if (game.phase !== 'strike' || game.turn !== uid) fail('Attacks can only be declared during your STRIKE! phase.');
@@ -542,6 +579,16 @@ export function declareAttack(sid, uid, source, target) {
     };
     game.clash = { by: uid, defender, attackCard: card, counterCard: null };
     ctx.log(`${ctx.name(uid)} attacks ${targetLabel(ctx, defender, target)} with "${card.title}" for ${card.damage} damage!`, 'attack');
+
+    if (card.inflictStatus) {
+      const inflict = { status: card.inflictStatus, stacks: card.inflictStacks || 1, on: card.inflictOn || 'hit', zone: opts.stunZone || null };
+      if (inflict.on === 'direct') {
+        // "If a direct attack is declared": applies immediately, regardless of COUNTER!
+        if (target.kind === 'player') inflictStatus(ctx, uid, defender, inflict.status, inflict.stacks, inflict.zone, card.title);
+      } else {
+        game.attack.inflict = inflict;
+      }
+    }
   }, { withHand: true });
 }
 
@@ -580,21 +627,105 @@ export function resolveWithoutCounter(sid, uid, attackId, reason) {
   });
 }
 
+// ---------- Card effects ----------
+// Effects that the engine applies automatically, keyed by card title (built-in sets).
+// Generic effects for any card come from its fields: inflictStatus / inflictStacks / inflictOn.
+const EFFECTS = {
+  // Shield: once per turn, direct damage triggers a roll — even: reduce by 80, odd: nullify it.
+  Instinct: { shieldRoll: { even: 80 } },
+  // Defend: block 30, then roll — odd: negate any remaining damage.
+  'Brace For Impact!': { counterRoll: 'odd-negates' },
+  // Defend: block 40; if "Instinct" is in play it gains Instinct's roll (even: −80, odd: nullify).
+  Reflex: { counterRoll: 'instinct-if-in-play' },
+  // Ability (Equip): discard all your "Nail" cards in play; for each, opponent takes 40 damage and 1 Purge,
+  // and this card's damage increases by 20.
+  'Veil Piercer': { onEquip: 'veil-piercer' },
+};
+const effectOf = (card) => EFFECTS[card?.title] || {};
+
+// Applies a status from a card effect, respecting max stacks and special rules.
+function inflictStatus(ctx, by, target, statusId, stacks = 1, zone = null, source = '') {
+  const def = statusDef(statusId);
+  if (!def) return;
+  const s = ensureStatus(ctx.game, target);
+  const from = source ? ` (${source})` : '';
+  if (statusId === 'stun') {
+    if (s.stun) {
+      ctx.log(`${ctx.name(target)} is already stunned${from}.`, 'status');
+      return;
+    }
+    const slot = ABILITY_ZONES.includes(zone) ? zone : ABILITY_ZONES[0];
+    s.stun = { zone: slot, by };
+    ctx.log(`${ctx.name(target)} is stunned${from} — ${zoneLabel(slot)} is restricted until the end of their turn.`, 'status');
+    return;
+  }
+  if (statusId === 'frostbite' && s.freeze < statusDef('freeze').max) {
+    ctx.log(`Frostbite${from} has no effect — ${ctx.name(target)} isn't at max Freeze.`, 'status');
+    return;
+  }
+  const before = s[statusId];
+  s[statusId] = Math.min(def.max, before + stacks);
+  ctx.log(
+    s[statusId] === before
+      ? `${ctx.name(target)}'s ${def.label} is already at max (${def.max})${from}.`
+      : `${ctx.name(target)} gains ${def.label}${from} (${s[statusId]}/${def.max}).`,
+    'status',
+  );
+}
+
+function runEquipEffect(ctx, uid, card) {
+  if (effectOf(card).onEquip !== 'veil-piercer') return;
+  const { game, hand } = ctx;
+  const board = game.board[uid];
+  let nails = 0;
+  PLAYABLE_ZONES.filter((z) => z !== 'incantation').forEach((z) => {
+    const c = board[z];
+    const real = c?.faceDown ? hand.latent[z] : c;
+    if (real && real.title === 'Nail' && real !== card) {
+      delete board[z];
+      if (c.faceDown) delete hand.latent[z];
+      removeFromPlay(ctx, uid, real);
+      nails++;
+    }
+  });
+  if (!nails) {
+    ctx.log(`"${card.title}" finds no "Nail" cards in play.`);
+    return;
+  }
+  const opp = opponentOf(game, uid);
+  card.damage += 20 * nails;
+  ctx.log(`"${card.title}" discards ${nails} "Nail" card${nails === 1 ? '' : 's'} — its damage rises to ${card.damage}.`, 'attack');
+  for (let i = 0; i < nails; i++) {
+    applyDirectDamage(ctx, opp, 40);
+    inflictStatus(ctx, uid, opp, 'purge', 1, null, card.title);
+  }
+}
+
 // Direct damage to a player: Shield absorbs first (losing health), then Body Armor reduces by its block value.
+// Returns the damage that reached the player.
 function applyDirectDamage(ctx, def, amount) {
   const board = ctx.game.board[def];
   let dmg = amount;
 
   const shield = board.shield;
-  if (dmg > 0 && shield && !shield.faceDown && shield.health > 0) {
-    const absorbed = Math.min(shield.health, dmg);
-    shield.health -= absorbed;
-    dmg -= absorbed;
-    ctx.log(`"${shield.title}" absorbs ${absorbed} damage (${shield.health} health left).`, 'damage');
-    if (shield.health <= 0) {
-      delete board.shield;
-      pushDiscard(ctx, def, shield);
-      ctx.log(`"${shield.title}" is destroyed.`, 'damage');
+  if (dmg > 0 && shield && !shield.faceDown) {
+    const roll = effectOf(shield).shieldRoll;
+    if (roll && shield.usedTurn !== ctx.game.turnNo) {
+      shield.usedTurn = ctx.game.turnNo;
+      const r = rollDie(ctx, def, `"${shield.title}"`, (v) => (v % 2 === 0 ? `Even — reduce damage by ${roll.even}` : 'Odd — nullify all damage'));
+      const before = dmg;
+      dmg = r % 2 === 0 ? Math.max(0, dmg - roll.even) : 0;
+      ctx.log(`"${shield.title}" rolls ${r} — damage ${before} → ${dmg}.`, 'dice');
+    } else if (shield.health > 0) {
+      const absorbed = Math.min(shield.health, dmg);
+      shield.health -= absorbed;
+      dmg -= absorbed;
+      ctx.log(`"${shield.title}" absorbs ${absorbed} damage (${shield.health} health left).`, 'damage');
+      if (shield.health <= 0) {
+        delete board.shield;
+        ctx.log(`"${shield.title}" is destroyed.`, 'damage');
+        removeFromPlay(ctx, def, shield);
+      }
     }
   }
 
@@ -607,35 +738,68 @@ function applyDirectDamage(ctx, def, amount) {
 
   if (dmg > 0) damagePlayer(ctx, def, dmg, 'the attack');
   else ctx.log(`${ctx.name(def)} takes no damage.`, 'counter');
+  return dmg;
+}
+
+// Dice effects on counter cards. Returns the damage still coming through.
+function applyCounterRoll(ctx, def, counterCard, net) {
+  const kind = effectOf(counterCard).counterRoll;
+  if (!kind || net <= 0) return net;
+  if (kind === 'odd-negates') {
+    const r = rollDie(ctx, def, `"${counterCard.title}"`, (v) => (v % 2 ? 'Odd — remaining damage negated' : 'Even — no extra effect'));
+    if (r % 2) {
+      ctx.log(`"${counterCard.title}" rolls ${r} (odd) — remaining damage negated!`, 'dice');
+      return 0;
+    }
+    ctx.log(`"${counterCard.title}" rolls ${r} (even) — no extra effect.`, 'dice');
+    return net;
+  }
+  if (kind === 'instinct-if-in-play') {
+    const shield = ctx.game.board[def]?.shield;
+    if (!shield || shield.faceDown || shield.title !== 'Instinct') return net;
+    const r = rollDie(ctx, def, `"${counterCard.title}" (Instinct)`, (v) => (v % 2 === 0 ? 'Even — reduce damage by 80' : 'Odd — nullify all damage'));
+    const after = r % 2 === 0 ? Math.max(0, net - 80) : 0;
+    ctx.log(`"${counterCard.title}" gains Instinct's roll: ${r} — damage ${net} → ${after}.`, 'dice');
+    return after;
+  }
+  return net;
 }
 
 function resolveAttack(ctx, counter) {
   const { game } = ctx;
   const a = game.attack;
   const def = a.defender;
-  const net = Math.max(0, a.damage - (counter?.value || 0));
+  let net = Math.max(0, a.damage - (counter?.value || 0));
 
   if (counter) {
     const verb = counter.card.cardType === 'Defend' ? 'blocking' : 'striking back for';
     ctx.log(`${ctx.name(def)} counters with "${counter.card.title}", ${verb} ${counter.value}.`, 'counter');
+    net = applyCounterRoll(ctx, def, counter.card, net);
   }
 
+  let landed = 0;
   if (net === 0) {
     ctx.log('The attack is fully countered!', 'counter');
   } else if (a.target.kind === 'player') {
-    applyDirectDamage(ctx, def, net);
+    landed = applyDirectDamage(ctx, def, net);
   } else {
     const card = game.board[def][a.target.zone];
     if (card && !Array.isArray(card)) {
       const before = card.health;
       card.health = Math.max(0, card.health - net);
+      landed = before - card.health;
       ctx.log(`"${card.title}" takes ${net} damage (${before} → ${card.health}).`, 'damage');
       if (card.health <= 0) {
         delete game.board[def][a.target.zone];
-        pushDiscard(ctx, def, card);
         ctx.log(`"${card.title}" is destroyed.`, 'damage');
+        removeFromPlay(ctx, def, card);
       }
     }
+  }
+
+  // On-hit status from the attacking card (e.g. Burn) once damage actually lands
+  if (a.inflict?.on === 'hit' && landed > 0) {
+    inflictStatus(ctx, a.by, def, a.inflict.status, a.inflict.stacks, a.inflict.zone, a.card.title);
   }
 
   // Cast cards are spent; revealed Latent cards stay in play
@@ -646,57 +810,15 @@ function resolveAttack(ctx, counter) {
   checkDefeat(ctx);
 }
 
-// ---------- Status effects (applied by card effects, so players apply them manually) ----------
-function requireActiveGame(game) {
-  if (game.phase === 'setup' || game.phase === 'start' || game.phase === 'over') fail('Statuses can only be changed during the match.');
-}
-
-export function applyStatus(sid, uid, target, statusId, zone) {
+// ---------- Detonation ----------
+// Burn and Purge "can be detonated": the player who applied them may detonate during their own STRIKE! phase.
+export function detonateStatus(sid, uid, statusId) {
   return act(sid, uid, (ctx) => {
     const { game } = ctx;
-    requireActiveGame(game);
+    if (game.phase !== 'strike' || game.turn !== uid || game.attack) fail('Detonate during your STRIKE! phase.');
     const def = statusDef(statusId);
-    const s = ensureStatus(game, target);
-
-    if (statusId === 'stun') {
-      if (s.stun) fail(`${ctx.name(target)} is already stunned.`);
-      if (!ABILITY_ZONES.includes(zone)) fail('Choose which Ability slot to restrict.');
-      s.stun = { zone, by: uid };
-      ctx.log(`${ctx.name(uid)} stuns ${ctx.name(target)} — ${zoneLabel(zone)} is restricted until the end of their turn.`, 'status');
-      return;
-    }
-    if (statusId === 'frostbite' && s.freeze < statusDef('freeze').max) {
-      fail('Frostbite can only be applied when Freeze is at max stacks (2).');
-    }
-    if (s[statusId] >= def.max) fail(`${def.label} is already at max stacks (${def.max}).`);
-    s[statusId] += 1;
-    ctx.log(`${ctx.name(uid)} applies ${def.label} to ${ctx.name(target)} (${s[statusId]}/${def.max}).`, 'status');
-  });
-}
-
-export function removeStatus(sid, uid, target, statusId) {
-  return act(sid, uid, (ctx) => {
-    const { game } = ctx;
-    requireActiveGame(game);
-    const def = statusDef(statusId);
-    const s = ensureStatus(game, target);
-    if (statusId === 'stun') {
-      if (!s.stun) return false;
-      s.stun = null;
-    } else {
-      if (!s[statusId]) return false;
-      s[statusId] -= 1;
-    }
-    ctx.log(`${ctx.name(uid)} removes a ${def.label} stack from ${ctx.name(target)}.`, 'status');
-  });
-}
-
-export function detonateStatus(sid, uid, target, statusId) {
-  return act(sid, uid, (ctx) => {
-    const { game } = ctx;
-    requireActiveGame(game);
-    const def = statusDef(statusId);
-    if (!def.detonate) fail(`${def.label} can't be detonated.`);
+    if (!def?.detonate) fail(`${def?.label || 'That status'} can't be detonated.`);
+    const target = opponentOf(game, uid);
     const s = ensureStatus(game, target);
     const stacks = s[statusId];
     if (!stacks) fail(`${ctx.name(target)} has no ${def.label} stacks.`);
@@ -704,15 +826,6 @@ export function detonateStatus(sid, uid, target, statusId) {
     ctx.log(`${ctx.name(uid)} detonates ${def.label} ×${stacks} on ${ctx.name(target)}!`, 'attack');
     damagePlayer(ctx, target, stacks * STATUS_DAMAGE_PER_STACK, `${def.label} detonation`);
     checkDefeat(ctx);
-  });
-}
-
-// For card text like "Roll a die": result is logged for both players.
-export function rollDieForCard(sid, uid) {
-  return act(sid, uid, (ctx) => {
-    if (ctx.game.phase === 'setup' || ctx.game.phase === 'over') fail('No match in progress.');
-    const r = rollDie();
-    ctx.log(`${ctx.name(uid)} rolled a ${r} (${r % 2 === 0 ? 'even' : 'odd'}).`, 'dice');
   });
 }
 

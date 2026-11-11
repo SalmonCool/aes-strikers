@@ -765,3 +765,57 @@
 }
 .hand { justify-content: flex-start; }
 .hand::after { content: ''; flex: 1 0 0; } /* keeps playable cards packed left after the pile */
+.zone.lit.replace { border-color: #ffb35a; background: rgba(255, 179, 90, 0.12); box-shadow: 0 0 1.5cqw rgba(255, 179, 90, 0.6); }
+.zone-card.exhausted { filter: grayscale(1) brightness(0.45); }
+
+/* ---------- Statuses panel (read-only) ---------- */
+.fx-section + .fx-section { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255, 255, 255, 0.1); }
+.fx-section h3 { margin: 0 0 6px; font-size: 0.8rem; font-weight: 600; color: rgba(255, 255, 255, 0.75); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-desc { grid-column: 1 / -1; font-size: 0.72rem; line-height: 1.35; color: rgba(255, 255, 255, 0.5); }
+.fx-foot { margin-top: 10px; font-size: 0.72rem; }
+
+/* ---------- Dice roll display ---------- */
+.dice-roll {
+  position: fixed;
+  z-index: 56;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  pointer-events: none;
+  animation: dice-life 2.6s ease-in-out both;
+}
+.dice-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 240px;
+  padding: 20px 28px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(10, 31, 68, 0.95), rgba(3, 8, 22, 0.95));
+  border: 1px solid rgba(255, 215, 106, 0.6);
+  box-shadow: 0 0 40px rgba(255, 215, 106, 0.3), 0 20px 40px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+.dice-reason { font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); }
+.die {
+  width: 84px;
+  height: 84px;
+  padding: 10px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #ffffff, #dfe9f5);
+  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.12), 0 0 24px rgba(255, 215, 106, 0.5);
+}
+.die.tumbling { animation: die-tumble 0.3s linear infinite; }
+.die.landed { animation: die-land 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.4); }
+.die-face { width: 100%; height: 100%; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); place-items: center; }
+.pip { width: 13px; height: 13px; border-radius: 50%; }
+.pip.on { background: #0a1f44; box-shadow: inset 0 2px 2px rgba(0, 0, 0, 0.4); }
+.dice-result { font-family: var(--font-display); font-weight: 700; font-size: 1.4rem; letter-spacing: 0.06em; animation: float-in 0.25s ease-out both; }
+.dice-result.even { color: #7ff7ff; }
+.dice-result.odd { color: #ffd76a; }
+.dice-outcome { font-size: 0.9rem; color: var(--white); animation: float-in 0.25s 0.1s ease-out both; }
+@keyframes die-tumble { 0% { rotate: 0deg; scale: 1; } 50% { rotate: 180deg; scale: 0.9; } 100% { rotate: 360deg; scale: 1; } }
+@keyframes die-land { 0% { scale: 1.3; } 100% { scale: 1; } }
+@keyframes dice-life { 0% { opacity: 0; } 8%, 88% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .die.tumbling, .die.landed { animation: none; } }

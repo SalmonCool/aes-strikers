@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AETHER_TYPES, IDOL_TYPES, setActiveDeck } from '../../firebase/db.js';
+import { AETHER_TYPES, IDOL_TYPES, createDeck, setActiveDeck } from '../../firebase/db.js';
+import { CARD_SETS, starterDeckCards } from '../../data/cardSets.js';
 import useDecks from '../../hooks/useDecks.js';
 
 // Most common value of a field among non-SOUL cards (used to pre-select the deck's tokens).
@@ -24,12 +25,22 @@ export default function SetupPanel({ uid, onReady }) {
   const setPick = (k, v) => setPicks((p) => ({ ...p, [deck.id]: { aether, idol, [k]: v } }));
 
   const playable = cards.filter((c) => c.cardType === 'Soul' || (c.aetherType === aether && c.idolType === idol));
-  const unplayable = cards.filter((c) => !playable.includes(c));
+  const unplayableTitles = [...new Set(cards.filter((c) => !playable.includes(c)).map((c) => `${c.title} (${c.aetherType}/${c.idolType})`))];
 
   const ready = async () => {
     setBusy(true);
     try {
       await onReady(cards, aether, idol);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const makeStarter = async (set) => {
+    setBusy(true);
+    try {
+      const id = await createDeck(uid, `${set.name} Starter`, starterDeckCards(set));
+      await setActiveDeck(uid, id);
     } finally {
       setBusy(false);
     }
@@ -41,21 +52,31 @@ export default function SetupPanel({ uid, onReady }) {
         <h2 id="setup-title">Setup Phase</h2>
         {loading ? (
           <p className="setup-hint">Loading your decks…</p>
+        ) : decks.length === 0 ? (
+          <>
+            <p className="setup-hint">You don’t have a deck yet. Grab a starter deck to play now, or build one in the Deck Manager.</p>
+            <div className="starter-row">
+              {CARD_SETS.map((s) => (
+                <button key={s.id} className="ui-btn primary" disabled={busy} onClick={() => makeStarter(s)}>{s.name} Starter</button>
+              ))}
+              <Link to="/deck" className="ui-btn">Deck Manager</Link>
+            </div>
+          </>
         ) : (
           <>
             <div className="field setup-deck">
               <label htmlFor="setup-deck">Deck</label>
               <select id="setup-deck" className="ui-select" value={activeDeckId} onChange={(e) => setActiveDeck(uid, e.target.value)}>
                 {decks.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.cards.length} cards){d.isDefault ? ' — example' : ''}</option>
+                  <option key={d.id} value={d.id}>{d.name} ({d.check.total} cards){d.check.valid ? '' : ' — needs fixes'}</option>
                 ))}
               </select>
             </div>
 
-            {cards.length === 0 ? (
+            {!deck.check.valid ? (
               <>
-                <p className="setup-hint">This deck has no cards yet.</p>
-                <Link to="/deck" className="ui-btn primary">Go to Deck Manager</Link>
+                <p className="ui-msg error setup-summary">This deck can’t be played yet: {deck.check.errors.join(' ')}</p>
+                <Link to="/deck" className="ui-btn primary">Fix in Deck Manager</Link>
               </>
             ) : (
               <>
@@ -77,9 +98,9 @@ export default function SetupPanel({ uid, onReady }) {
                     </select>
                   </div>
                 </div>
-                <p className={`ui-msg ${unplayable.length ? 'error' : 'info'} setup-summary`}>
+                <p className={`ui-msg ${unplayableTitles.length ? 'error' : 'info'} setup-summary`}>
                   {playable.length} of {cards.length} cards are playable with {aether}/{idol}.
-                  {unplayable.length > 0 && ` Not playable: ${unplayable.map((c) => `${c.title} (${c.aetherType}/${c.idolType})`).join(', ')}.`}
+                  {unplayableTitles.length > 0 && ` Not playable: ${unplayableTitles.join(', ')}.`}
                 </p>
                 <div className="modal-actions">
                   <button className="ui-btn primary" disabled={busy} onClick={ready}>{busy ? 'Shuffling…' : 'Ready'}</button>

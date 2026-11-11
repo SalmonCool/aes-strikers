@@ -8,9 +8,10 @@
 //   sessions/{sessionId}        { hostUid, hostName, guestUid, guestName, status: 'waiting'|'active', createdAt }
 import {
   addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query,
-  runTransaction, serverTimestamp, setDoc, updateDoc, where, limit, writeBatch,
+  runTransaction, serverTimestamp, setDoc, updateDoc, where, limit, writeBatch, FieldPath, deleteField,
 } from 'firebase/firestore';
 import { db } from './config.js';
+import { hasNoHealth } from '../game/zones.js';
 import { DEFAULT_CROP, addArtDeletesToBatch, addArtToBatch, forgetArt, normalizeCrop } from './cardArt.js';
 import { newGame, newPlayer } from '../game/engine.js';
 
@@ -39,11 +40,12 @@ export async function findUserByEmail(email) {
 
 // ---------- Cards ----------
 // Card shape:
-//   deckId: string                (the user deck this card belongs to)
 //   title, cardType, typeAction ('' = none), description, aetherType, idolType: string
 //   soulCost, health, damage: number
 //   block: number   (Defend cards: damage blocked when used as a COUNTER!; Body Armor: direct damage reduced)
 //   healthPlus, damagePlus: boolean   (show the stat as "40+", i.e. variable / can increase)
+//   inflictStatus: '' | 'burn' | 'purge' | 'freeze' | 'frostbite' | 'stun'   (status this card applies when attacking)
+//   inflictStacks: number   inflictOn: 'hit' (when its damage lands) | 'direct' (when a direct attack is declared)
 //   art: { ownerUid, cardId, chunks, v } | null   (image chunks live in Firestore, see cardArt.js)
 //   artCrop: { x, y, zoom }   x/y = focal point 0–1, zoom = 1–4 (applied when rendering, original image kept)
 //   createdAt, updatedAt: timestamp
@@ -51,6 +53,7 @@ export const CARD_TYPES = ['Ability', 'Attack', 'Defend', 'Spatial', 'Soul', 'We
 export const TYPE_ACTIONS = ['Equip', 'Cast', 'Latent'];
 export const AETHER_TYPES = ['Air', 'Wind', 'Earth', 'Fire', 'Water', 'Shadow', 'Aether', 'Demon', 'Soul'];
 export const IDOL_TYPES = ['Anger', 'Fear', 'Sadness', 'Disgust', 'Happiness', 'Surprise'];
+export const STATUS_IDS = ['burn', 'purge', 'freeze', 'frostbite', 'stun'];
 
 export const EMPTY_CARD = {
   title: '',
@@ -63,6 +66,9 @@ export const EMPTY_CARD = {
   block: 0,
   healthPlus: false,
   damagePlus: false,
+  inflictStatus: '',
+  inflictStacks: 1,
+  inflictOn: 'hit',
   aetherType: AETHER_TYPES[0],
   idolType: IDOL_TYPES[0],
   art: null,
@@ -75,11 +81,14 @@ const cardFields = (card) => ({
   typeAction: card.typeAction || '',
   description: (card.description || '').trim(),
   soulCost: Number(card.soulCost) || 0,
-  health: Number(card.health) || 0,
+  health: hasNoHealth(card) ? 0 : Number(card.health) || 0,
   damage: Number(card.damage) || 0,
   block: Number(card.block) || 0,
   healthPlus: Boolean(card.healthPlus),
   damagePlus: Boolean(card.damagePlus),
+  inflictStatus: STATUS_IDS.includes(card.inflictStatus) ? card.inflictStatus : '',
+  inflictStacks: Math.min(3, Math.max(1, Number(card.inflictStacks) || 1)),
+  inflictOn: card.inflictOn === 'direct' ? 'direct' : 'hit',
   aetherType: card.aetherType,
   idolType: card.idolType,
   artCrop: normalizeCrop(card.artCrop),
@@ -88,19 +97,19 @@ const cardFields = (card) => ({
 const cardsCol = (uid) => collection(db, 'users', uid, 'cards');
 const millis = (t) => t?.toMillis?.() ?? Number.MAX_SAFE_INTEGER; // pending server timestamps sort last
 
-// All of a user's cards across every deck (filtered by deck client-side; avoids needing a composite index).
+// All of the user's own cards (their "My Cards" set).
 export function watchAllCards(uid, cb) {
   return onSnapshot(cardsCol(uid), (snap) =>
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => millis(a.createdAt) - millis(b.createdAt))),
   );
 }
 
-// Saves a card into a deck, plus (optionally) its compressed art data URL, in one atomic batch.
-export async function addCard(uid, deckId, card, artDataUrl) {
+// Saves a card to the user's "My Cards" set, plus (optionally) its compressed art data URL, in one atomic batch.
+export async function addCard(uid, card, artDataUrl) {
   const ref = doc(cardsCol(uid));
   const batch = writeBatch(db);
   const art = artDataUrl ? addArtToBatch(batch, uid, ref.id, artDataUrl) : null;
-  batch.set(ref, { ...cardFields(card), deckId, art, createdAt: serverTimestamp() });
+  batch.set(ref, { ...cardFields(card), art, createdAt: serverTimestamp() });
   await batch.commit();
   return ref.id;
 }
@@ -132,10 +141,10 @@ export async function deleteCard(uid, card) {
 }
 
 // ---------- Decks ----------
-//   users/{uid}/decks/{deckId}  { name, createdAt }
-//   users/{uid}.activeDeckId    the deck used when entering an arena (may be a built-in default deck id)
+//   users/{uid}/decks/{deckId}  { name, cards: { [cardId]: count }, createdAt }
+//     cardId is a built-in set card id ("default-linx-01"), the SOUL card ("soul"), or one of the user's own card ids.
+//   users/{uid}.activeDeckId    the deck used when entering an arena
 const decksCol = (uid) => collection(db, 'users', uid, 'decks');
-const MAX_BATCH_OPS = 450;
 
 export function watchDecks(uid, cb) {
   return onSnapshot(decksCol(uid), (snap) =>
@@ -149,51 +158,20 @@ export function watchProfile(uid, cb) {
 
 export const setActiveDeck = (uid, deckId) => setDoc(doc(db, 'users', uid), { activeDeckId: deckId }, { merge: true });
 
-export async function createDeck(uid, name) {
-  const ref = await addDoc(decksCol(uid), { name: name.trim(), createdAt: serverTimestamp() });
+export async function createDeck(uid, name, cards = {}) {
+  const ref = await addDoc(decksCol(uid), { name: name.trim(), cards, createdAt: serverTimestamp() });
   return ref.id;
 }
 
 export const renameDeck = (uid, deckId, name) => updateDoc(doc(db, 'users', uid, 'decks', deckId), { name: name.trim() });
 
-// Deletes a deck and every card (and card art) in it.
-export async function deleteDeck(uid, deckId, cards) {
-  const ops = [];
-  for (const c of cards) {
-    ops.push((b) => b.delete(doc(db, 'users', uid, 'cards', c.id)));
-    if (c.art) for (let i = 0; i < c.art.chunks; i++) ops.push((b) => addArtDeletesToBatch(b, { ...c.art, chunks: i + 1 }, i));
-  }
-  ops.push((b) => b.delete(doc(db, 'users', uid, 'decks', deckId)));
-  for (let i = 0; i < ops.length; i += MAX_BATCH_OPS) {
-    const batch = writeBatch(db);
-    ops.slice(i, i + MAX_BATCH_OPS).forEach((op) => op(batch));
-    await batch.commit();
-  }
-  cards.forEach((c) => c.art && forgetArt(c.art));
-}
+// Sets how many copies of a card the deck holds (0 removes it).
+export const setDeckCardCount = (uid, deckId, cardId, count) =>
+  updateDoc(doc(db, 'users', uid, 'decks', deckId), new FieldPath('cards', cardId), count > 0 ? count : deleteField());
 
-// Creates an editable copy of a deck (used for the built-in example decks, which have no art).
-export async function copyDeck(uid, name, cards) {
-  const deckRef = doc(decksCol(uid));
-  const batch = writeBatch(db);
-  batch.set(deckRef, { name: name.trim(), createdAt: serverTimestamp() });
-  cards.forEach((c) => batch.set(doc(cardsCol(uid)), { ...cardFields(c), deckId: deckRef.id, art: null, createdAt: serverTimestamp() }));
-  await batch.commit();
-  return deckRef.id;
-}
+export const setDeckCards = (uid, deckId, cards) => updateDoc(doc(db, 'users', uid, 'decks', deckId), { cards });
 
-// One-time migration: cards created before decks existed get moved into a "My Cards" deck.
-export async function adoptLooseCards(uid, looseCards) {
-  if (looseCards.length === 0) return null;
-  const deckRef = doc(decksCol(uid));
-  for (let i = 0; i < looseCards.length; i += MAX_BATCH_OPS) {
-    const batch = writeBatch(db);
-    if (i === 0) batch.set(deckRef, { name: 'My Cards', createdAt: serverTimestamp() });
-    looseCards.slice(i, i + MAX_BATCH_OPS).forEach((c) => batch.update(doc(db, 'users', uid, 'cards', c.id), { deckId: deckRef.id }));
-    await batch.commit();
-  }
-  return deckRef.id;
-}
+export const deleteDeck = (uid, deckId) => deleteDoc(doc(db, 'users', uid, 'decks', deckId));
 
 // ---------- Friends ----------
 const pairId = (a, b) => [a, b].sort().join('_');
@@ -266,6 +244,7 @@ export function joinSession(id, user) {
       [`game.players.${user.uid}`]: newPlayer(name),
       [`game.board.${user.uid}`]: {},
       [`game.discard.${user.uid}`]: [],
+      [`game.exhausted.${user.uid}`]: [],
     });
     tx.set(doc(collection(db, 'sessions', id, 'log')), {
       text: `${name} joined the arena.`, kind: 'info', uid: user.uid, at: Date.now(),
