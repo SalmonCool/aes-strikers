@@ -15,6 +15,22 @@ import Hand from '../components/game/Hand.jsx';
 import CounterPrompt from '../components/game/CounterPrompt.jsx';
 import SetupPanel from '../components/game/SetupPanel.jsx';
 import EffectsPanel from '../components/game/EffectsPanel.jsx';
+import TurnBanner from '../components/game/TurnBanner.jsx';
+import { isMuted, playTurnChime, setMuted } from '../game/sounds.js';
+
+function SoundToggle() {
+  const [muted, setMutedState] = useState(isMuted);
+  const toggle = () => {
+    setMuted(!muted);
+    setMutedState(!muted);
+    if (muted) playTurnChime(); // preview the sound when turning it back on
+  };
+  return (
+    <button className="arena-btn" onClick={toggle} aria-pressed={!muted} title={muted ? 'Turn sounds on' : 'Turn sounds off'}>
+      {muted ? 'Sound: Off' : 'Sound: On'}
+    </button>
+  );
+}
 import './GameBoard.css';
 
 function InviteButton({ sessionId }) {
@@ -288,12 +304,16 @@ export default function GameBoard() {
     hint = `${names[game.turn]}'s ${game.phase === 'strike' ? 'STRIKE!' : game.phase} phase…`;
   }
 
+  const turnActive = ['draw', 'equip', 'strike'].includes(game.phase);
+  const turnClass = turnActive ? (myTurn ? 'turn-mine' : 'turn-theirs') : '';
+
   return (
-    <div className="game-page">
+    <div className={`game-page ${turnClass}`}>
       <aside className="arena-side left">
         <div className="arena-bar">
           <Link to="/" className="arena-btn">Leave</Link>
           <InviteButton sessionId={sessionId} />
+          <SoundToggle />
         </div>
         <PhaseTracker game={game} me={me} />
       </aside>
@@ -366,6 +386,8 @@ export default function GameBoard() {
       {game.phase === 'setup' && !player?.ready && (
         <SetupPanel uid={me} onReady={(cards, aether, idol) => setupReady(sessionId, me, cards, aether, idol).catch((e) => setToast(e.message))} />
       )}
+
+      <TurnBanner game={game} me={me} />
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
