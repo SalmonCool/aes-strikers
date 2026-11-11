@@ -643,3 +643,14 @@
 
 .setup-panel { max-width: 560px; }
 .setup-summary { margin: 14px 0 6px; font-size: 0.85rem; }
+
+/* ---------- Enlarged hand-card preview on hover ---------- */
+.hand-preview {
+  position: fixed;
+  z-index: 45;
+  pointer-events: none;
+  filter: drop-shadow(0 0 24px rgba(0, 229, 229, 0.45)) drop-shadow(0 20px 40px rgba(0, 0, 0, 0.7));
+  animation: preview-in 0.15s ease-out both;
+}
+@keyframes preview-in { from { opacity: 0; translate: 0 10px; scale: 0.92; } to { opacity: 1; translate: 0 0; scale: 1; } }
+@media (prefers-reduced-motion: reduce) { .hand-preview { animation: none; } }
