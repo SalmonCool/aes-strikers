@@ -728,3 +728,40 @@
 @keyframes preview-in { from { opacity: 0; scale: 0.92; } to { opacity: 1; scale: 1; } }
 @media (prefers-reduced-motion: reduce) { .card-preview-float { animation: none; } }
 @media (hover: none) { .card-preview-float { display: none; } }
+
+/* ---------- SOUL pile (left end of the hand) ---------- */
+.soul-pile {
+  position: relative;
+  flex: none;
+  width: 92px;
+  aspect-ratio: 467 / 657;
+  margin-right: 18px; /* room for the stacked offsets + separation from playable cards */
+  align-self: flex-end;
+  cursor: help;
+}
+.soul-pile-card {
+  position: absolute;
+  inset: 0;
+  /* Older layers sit further up-left, so the pile reads as a stack */
+  translate: calc(var(--i) * -5px) calc(var(--i) * -5px);
+  filter: brightness(calc(1 - var(--i) * 0.15));
+}
+.soul-pile-count {
+  position: absolute;
+  z-index: 2;
+  right: -10px;
+  bottom: -6px;
+  min-width: 34px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--black);
+  border: 1px solid #7ff7ff;
+  color: #7ff7ff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-align: center;
+  box-shadow: 0 0 10px rgba(127, 247, 255, 0.5);
+}
+.hand { justify-content: flex-start; }
+.hand::after { content: ''; flex: 1 0 0; } /* keeps playable cards packed left after the pile */

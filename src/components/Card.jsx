@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { artKey, cropStyle, loadArt } from '../firebase/cardArt.js';
 import './Card.css';
 
@@ -20,6 +20,45 @@ function useCardArt(art) {
   }, [key]);
 
   return loaded.key === key ? loaded.url : '';
+}
+
+// Description text that wraps around the bottom-right SOUL orb and shrinks until it fits the box.
+// Sizes are in cqw (relative to card width), so a size that fits at one card size fits at every size.
+const DESC_MAX = 3.6;
+const DESC_MIN = 2.2;
+const DESC_STEP = 0.1;
+
+function FittedText({ text }) {
+  const ref = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      if (!el.clientHeight) return; // not laid out (hidden) yet
+      let size = DESC_MAX;
+      el.style.fontSize = `${size}cqw`;
+      while (el.scrollHeight > el.clientHeight + 1 && size > DESC_MIN) {
+        size = Math.round((size - DESC_STEP) * 10) / 10;
+        el.style.fontSize = `${size}cqw`;
+      }
+    };
+    fit();
+    // Re-fit when the card first becomes visible or changes size (e.g. fonts finish loading)
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    document.fonts?.ready.then(fit);
+    return () => ro.disconnect();
+  }, [text]);
+
+  return (
+    <div className="gc-desc-text" ref={ref}>
+      {/* Two floats reserve the bottom-right corner for the SOUL orb so text flows around it */}
+      <span className="gc-desc-push" aria-hidden="true" />
+      <span className="gc-desc-orb-space" aria-hidden="true" />
+      {text}
+    </div>
+  );
 }
 
 // Renders a card using the standard layout. Scales to whatever width its container gives it.
@@ -64,7 +103,7 @@ export default function Card({ card, children }) {
         </div>
 
         <div className="gc-desc">
-          <p>{description}</p>
+          <FittedText text={description} />
           <span className="gc-orb gc-soul-bottom" title="SOUL cost">{soulCost}</span>
         </div>
       </div>

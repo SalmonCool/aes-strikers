@@ -146,17 +146,29 @@
   border: 0.6cqw solid rgba(127, 247, 255, 0.8);
   box-shadow: inset 0 0 3cqw rgba(0, 229, 229, 0.12);
 }
-.gc-desc p {
-  margin: 0;
-  padding-right: 2cqw;
-  max-height: calc(100% - 15cqw);
+.gc-desc-text {
+  height: 100%;
   overflow: hidden;
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 3.6cqw;
-  line-height: 1.35;
+  font-size: 3.6cqw; /* starting size; FittedText shrinks it to fit */
+  line-height: 1.3;
   color: rgba(255, 255, 255, 0.92);
   white-space: pre-line;
+  overflow-wrap: break-word;
+}
+/* Bottom-right float trick: an invisible full-height spacer pushes a second float to the bottom,
+   carving out exactly the corner the SOUL orb covers. */
+.gc-desc-push {
+  float: right;
+  width: 0;
+  height: calc(100% - 13.5cqw);
+}
+.gc-desc-orb-space {
+  float: right;
+  clear: right;
+  width: 13cqw;
+  height: 13.5cqw;
 }
 .gc-soul-bottom { right: 1.5cqw; bottom: 1.5cqw; width: 15cqw; font-size: 5.5cqw; }
 
