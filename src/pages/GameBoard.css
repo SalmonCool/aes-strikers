@@ -286,7 +286,10 @@
 .pt-players { display: flex; flex-direction: column; gap: 12px; }
 .pt-player { padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.3); }
 .pt-player.empty { color: rgba(255, 255, 255, 0.45); font-style: italic; }
-.pt-player-name { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-player-head { display: flex; align-items: center; gap: 14px; margin: 4px 0 10px 4px; min-width: 0; }
+.pt-player-name { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 0; }
+.pt-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-soul-income { margin-top: 2px; font-size: 0.68rem; color: rgba(150, 215, 255, 0.7); text-align: right; }
 .pt-you {
   font-size: 0.65rem;
   padding: 1px 8px;

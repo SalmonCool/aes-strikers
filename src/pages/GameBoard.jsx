@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { joinSession, watchSession } from '../firebase/db.js';
+import { avatarOf, joinSession, watchProfile, watchSession } from '../firebase/db.js';
 import {
   affinityOk, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
   endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, playCounter, resolveWithoutCounter, revealLatent,
-  setupReady, soulInHand, startReady, validZonesFor, watchHand, watchLog,
+  setupReady, soulIncome, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
 import { ABILITY_ZONES, LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
 import PlayerMat from '../components/PlayerMat.jsx';
@@ -136,6 +136,14 @@ export default function GameBoard() {
   // ----- Derived state -----
   const opp = game ? opponentOf(game, me) : null;
   const player = game?.players[me];
+
+  // Player icons come from each player's profile (kept off the game doc so it stays small)
+  const [avatars, setAvatars] = useState({});
+  useEffect(() => {
+    const uids = [me, opp].filter(Boolean);
+    const unsubs = uids.map((u) => watchProfile(u, (p) => setAvatars((a) => ({ ...a, [u]: avatarOf(p) }))));
+    return () => unsubs.forEach((un) => un());
+  }, [me, opp]);
   const myBoard = useMemo(() => game?.board[me] || {}, [game, me]);
   const myTurn = game?.turn === me;
   const attack = game?.attack || null;
@@ -149,8 +157,8 @@ export default function GameBoard() {
 
   // Can this hand card be paid for and played by this player at all?
   const castable = useCallback(
-    (c) => !isSoulCard(c) && affinityOk(player, c) && canAfford(hand.hand, c),
-    [player, hand.hand],
+    (c) => !isSoulCard(c) && affinityOk(player, c) && canAfford(player, c),
+    [player],
   );
 
   // Is a revealed Latent card on my board usable right now?
@@ -261,9 +269,8 @@ export default function GameBoard() {
   // Why a selected card can't be played (if that's the case)
   let selectionHint = '';
   if (selectedCard && sel.from === 'hand') {
-    if (isSoulCard(selectedCard)) selectionHint = 'SOUL cards stay in your hand and are spent automatically to pay for other cards.';
-    else if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" is ${selectedCard.aetherType}/${selectedCard.idolType} — it doesn't match your ${player.aetherType}/${player.idolType} tokens.`;
-    else if (!canAfford(hand.hand, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${selectedCard.soulCost} SOUL. You have ${soulInHand(hand.hand, selectedCard.iid)}.`;
+    if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" is ${selectedCard.aetherType}/${selectedCard.idolType} — it doesn't match your ${player.aetherType}/${player.idolType} tokens.`;
+    else if (!canAfford(player, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${selectedCard.soulCost} SOUL. You have ${player?.soul || 0}.`;
     else if (canPlaceNow && isCastCard(selectedCard)) selectionHint = `${selectedCard.cardType} cards are cast during STRIKE! or COUNTER!, not equipped.`;
     else if (canPlaceNow && placeZones.length === 0) selectionHint = `No open zone for "${selectedCard.title}".`;
     else if (canPlaceNow && isLatentCard(selectedCard)) selectionHint = 'Latent card: place it face-down in a glowing Latent slot. SOUL is paid now.';
@@ -336,7 +343,7 @@ export default function GameBoard() {
           <InviteButton sessionId={sessionId} />
           <SoundToggle />
         </div>
-        <PhaseTracker game={game} me={me} />
+        <PhaseTracker game={game} me={me} avatars={avatars} />
       </aside>
 
       <main className="arena-center">
@@ -377,8 +384,8 @@ export default function GameBoard() {
         </div>
 
         <div className="action-bar">
-          <span className="soul-count" title="SOUL cards in your hand. Each pays 1 SOUL.">
-            <span className="soul-gem" aria-hidden="true" />SOUL {soulInHand(hand.hand)}
+          <span className="soul-count" title={`Banked SOUL. You gain ${soulIncome((player?.turnsTaken || 0) + 1)} at the start of your next turn (up to 6 per turn). Unspent SOUL is kept.`}>
+            <span className="soul-gem" aria-hidden="true" />SOUL {player?.soul || 0}
           </span>
           <p className="action-hint">{selectionHint || hint}</p>
           <div className="action-buttons">{buttons}</div>

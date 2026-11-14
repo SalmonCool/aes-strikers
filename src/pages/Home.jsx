@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { createSession, displayNameOf } from '../firebase/db.js';
+import AvatarPicker from '../components/AvatarPicker.jsx';
 
 export default function Home() {
   const { user, logout } = useAuth();
@@ -26,9 +27,12 @@ export default function Home() {
     <main className="page">
       <div className="page-inner">
         <header className="page-header">
-          <div>
-            <h1 className="page-title">AES <span className="accent">STRIKERS</span></h1>
-            <p className="page-sub">Welcome, {displayNameOf(user)}</p>
+          <div className="home-identity">
+            <AvatarPicker uid={user.uid} name={displayNameOf(user)} />
+            <div>
+              <h1 className="page-title">AES <span className="accent">STRIKERS</span></h1>
+              <p className="page-sub">Welcome, {displayNameOf(user)}</p>
+            </div>
           </div>
           <button className="ui-btn small" onClick={logout}>Log out</button>
         </header>

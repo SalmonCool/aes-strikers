@@ -1,6 +1,6 @@
 // Built-in card sets, transcribed from "Linx, Veil Walker Set V.1.pdf" and "Dremur Deck V.1.pdf".
-// Players build decks by choosing cards (and copy counts) from these sets, their own "My Cards" set,
-// and the universal SOUL resource card. Sets ship with the app (not Firestore), so they're read-only.
+// Players build decks by choosing cards (and copy counts) from these sets and their own "My Cards" set.
+// Sets ship with the app (not Firestore), so they're read-only.
 // Card ids are kept stable ("default-linx-01"...) because saved decks reference them.
 // Stats shown as "20+" on the printed card are stored as the base number with damagePlus/healthPlus = true.
 
@@ -31,26 +31,6 @@ const card = (deckId, aetherType, idolType) => (index, title, cardType, typeActi
   readOnly: true,
   ...extra,
 });
-
-// The universal SOUL resource card: held in hand and discarded to pay a card's SOUL cost (1 SOUL card = 1 SOUL).
-// It has no Aether/Idol affinity and can be added to any deck.
-export const SOUL_CARD = {
-  id: 'soul',
-  title: 'SOUL',
-  cardType: 'Soul',
-  typeAction: '',
-  soulCost: 0,
-  health: 0,
-  damage: 0,
-  block: 0,
-  aetherType: '',
-  idolType: '',
-  description: 'Resource card. Discard this card from your hand to pay 1 SOUL when playing a card.',
-  healthPlus: false,
-  damagePlus: false,
-  art: null,
-  readOnly: true,
-};
 
 const L = card('default-linx', 'Wind', 'Disgust');
 const D = card('default-dremur', 'Earth', 'Happiness');
@@ -152,9 +132,5 @@ export const CARD_SETS = [
   { id: 'set-dremur', name: 'Dremur', builtIn: true, aetherType: 'Earth', idolType: 'Happiness', cards: DREMUR_CARDS },
 ];
 
-// Starter deck recipe for a set: one copy of every card plus SOUL.
-export const STARTER_SOUL = 10;
-export const starterDeckCards = (set) => ({
-  ...Object.fromEntries(set.cards.map((c) => [c.id, 1])),
-  [SOUL_CARD.id]: STARTER_SOUL,
-});
+// Starter deck recipe for a set: one copy of every card. (SOUL is gained each turn, not drawn.)
+export const starterDeckCards = (set) => Object.fromEntries(set.cards.map((c) => [c.id, 1]));

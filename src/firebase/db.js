@@ -32,6 +32,13 @@ export function saveUserProfile(user) {
   );
 }
 
+// Player icon: a small square data URL (see compressAvatar) stored on the user doc, or '' to remove it.
+// Readable by any signed-in player so opponents see it in the arena.
+export const setAvatar = (uid, dataUrl) => setDoc(doc(db, 'users', uid), { avatar: dataUrl || '' }, { merge: true });
+
+// The image to show for a profile: custom icon first, then the sign-in provider's photo.
+export const avatarOf = (profile) => profile?.avatar || profile?.photoURL || '';
+
 export async function findUserByEmail(email) {
   const q = query(collection(db, 'users'), where('emailLower', '==', email.trim().toLowerCase()), limit(1));
   const snap = await getDocs(q);
@@ -49,7 +56,8 @@ export async function findUserByEmail(email) {
 //   art: { ownerUid, cardId, chunks, v } | null   (image chunks live in Firestore, see cardArt.js)
 //   artCrop: { x, y, zoom }   x/y = focal point 0–1, zoom = 1–4 (applied when rendering, original image kept)
 //   createdAt, updatedAt: timestamp
-export const CARD_TYPES = ['Ability', 'Attack', 'Defend', 'Spatial', 'Soul', 'Weapon', 'Shield', 'Body Armor', 'Incantation'];
+// ('Soul' was a resource card type; SOUL is now gained each turn, so new cards can't use it.)
+export const CARD_TYPES = ['Ability', 'Attack', 'Defend', 'Spatial', 'Weapon', 'Shield', 'Body Armor', 'Incantation'];
 export const TYPE_ACTIONS = ['Equip', 'Cast', 'Latent'];
 export const AETHER_TYPES = ['Air', 'Wind', 'Earth', 'Fire', 'Water', 'Shadow', 'Aether', 'Demon', 'Soul'];
 export const IDOL_TYPES = ['Anger', 'Fear', 'Sadness', 'Disgust', 'Happiness', 'Surprise'];

@@ -5,7 +5,7 @@ import {
   CARD_TYPES, createDeck, deleteCard, deleteDeck, renameDeck, setActiveDeck, setDeckCardCount,
 } from '../firebase/db.js';
 import useDecks, { MY_CARDS_SET_ID } from '../hooks/useDecks.js';
-import { CARD_SETS, SOUL_CARD, starterDeckCards } from '../data/cardSets.js';
+import { CARD_SETS, starterDeckCards } from '../data/cardSets.js';
 import {
   COPY_LIMITS, BODY_ARMOR_PER_DECK, DECK_SIZE_LIMIT, TYPE_TOTAL_LIMITS, copyLimitFor, limitLabel, maxCopiesInDeck,
 } from '../game/deckRules.js';
@@ -16,7 +16,8 @@ import ImportCardsModal from '../components/deck/ImportCardsModal.jsx';
 import FormatGuideModal from '../components/deck/FormatGuideModal.jsx';
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const TYPE_ORDER = ['Soul', ...CARD_TYPES.filter((t) => t !== 'Soul')];
+const TYPE_ORDER = CARD_TYPES;
+const isSoul = (c) => c?.cardType === 'Soul'; // legacy SOUL cards: no longer part of decks
 
 // ======================= Decks tab: list =======================
 function DeckList({ uid, decks, activeDeckId, onEdit, onError }) {
@@ -84,7 +85,7 @@ function DeckList({ uid, decks, activeDeckId, onEdit, onError }) {
             </button>
           ))}
         </div>
-        <p className="field-help">Starter decks contain one copy of every card in the set plus 10 SOUL. Adjust copies in the builder.</p>
+        <p className="field-help">Starter decks contain one copy of every card in the set. Adjust copies in the builder. SOUL isn't a deck card: you gain it every turn.</p>
       </section>
 
       <section className="panel">
@@ -161,7 +162,7 @@ function DeckStats({ deck }) {
   const { size, byType } = deck.check;
   return (
     <p className="deck-count">
-      {size}/{DECK_SIZE_LIMIT} cards ({byType.Soul || 0} SOUL) · Weapons {byType.Weapon || 0}/{TYPE_TOTAL_LIMITS.Weapon} · Shields {byType.Shield || 0}/{TYPE_TOTAL_LIMITS.Shield} · Body Armor {byType['Body Armor'] || 0}/{BODY_ARMOR_PER_DECK}
+      {size}/{DECK_SIZE_LIMIT} cards · Weapons {byType.Weapon || 0}/{TYPE_TOTAL_LIMITS.Weapon} · Shields {byType.Shield || 0}/{TYPE_TOTAL_LIMITS.Shield} · Body Armor {byType['Body Armor'] || 0}/{BODY_ARMOR_PER_DECK}
     </p>
   );
 }
@@ -202,17 +203,16 @@ function DeckBuilder({ uid, deck, sets, catalog, activeDeckId, onBack, onError }
   };
 
   const pool = useMemo(() => {
-    const fromSets = setFilter === 'all' ? sets.flatMap((s) => s.cards) : setFilter === 'soul' ? [] : sets.find((s) => s.id === setFilter)?.cards || [];
-    const list = setFilter === 'all' || setFilter === 'soul' ? [SOUL_CARD, ...fromSets] : fromSets;
+    const list = setFilter === 'all' ? sets.flatMap((s) => s.cards) : sets.find((s) => s.id === setFilter)?.cards || [];
     const q = search.trim().toLowerCase();
-    return list.filter((c) => (typeFilter === 'All' || c.cardType === typeFilter) && (!q || c.title.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q)));
+    return list.filter((c) => !isSoul(c) && (typeFilter === 'All' || c.cardType === typeFilter) && (!q || c.title.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q)));
   }, [sets, setFilter, typeFilter, search]);
 
   const inDeck = Object.entries(entries)
-    .filter(([id, n]) => n > 0 && catalog[id])
+    .filter(([id, n]) => n > 0 && catalog[id] && !isSoul(catalog[id]))
     .map(([id, n]) => ({ card: catalog[id], n }))
     .sort((a, b) => TYPE_ORDER.indexOf(a.card.cardType) - TYPE_ORDER.indexOf(b.card.cardType) || a.card.title.localeCompare(b.card.title));
-  const missing = Object.keys(entries).filter((id) => entries[id] > 0 && !catalog[id]).length;
+  const missing = Object.keys(entries).filter((id) => entries[id] > 0 && !catalog[id] && id !== 'soul').length;
   const byType = {};
   inDeck.forEach((e) => { (byType[e.card.cardType] ||= []).push(e); });
 
@@ -243,7 +243,7 @@ function DeckBuilder({ uid, deck, sets, catalog, activeDeckId, onBack, onError }
         <section className="panel builder-pool">
           <div className="builder-filters">
             <div className="chip-row" role="tablist" aria-label="Card set">
-              {[['all', 'All Sets'], ...sets.map((s) => [s.id, s.name]), ['soul', 'SOUL']].map(([id, label]) => (
+              {[['all', 'All Sets'], ...sets.map((s) => [s.id, s.name])].map(([id, label]) => (
                 <button key={id} role="tab" aria-selected={setFilter === id} className={`chip ${setFilter === id ? 'active' : ''}`} onClick={() => setSetFilter(id)}>
                   {label}
                 </button>
@@ -301,7 +301,7 @@ function DeckBuilder({ uid, deck, sets, catalog, activeDeckId, onBack, onError }
           })}
           {missing > 0 && <p className="field-help">{plural(missing, 'card')} in this deck no longer exist and are ignored.</p>}
           <p className="field-help limits-note">
-            Max {DECK_SIZE_LIMIT} cards, SOUL included (any number of SOUL within that). Copies per card: Attack {COPY_LIMITS.Attack} · Defend {COPY_LIMITS.Defend} · Ability {COPY_LIMITS.Ability} · Incantation {COPY_LIMITS.Incantation} · Spatial {COPY_LIMITS.Spatial}. Per deck: {TYPE_TOTAL_LIMITS.Weapon} Weapons · {TYPE_TOTAL_LIMITS.Shield} Shields · {BODY_ARMOR_PER_DECK} Body Armor.
+            Max {DECK_SIZE_LIMIT} cards. Copies per card: Attack {COPY_LIMITS.Attack} · Defend {COPY_LIMITS.Defend} · Ability {COPY_LIMITS.Ability} · Incantation {COPY_LIMITS.Incantation} · Spatial {COPY_LIMITS.Spatial}. Per deck: {TYPE_TOTAL_LIMITS.Weapon} Weapons · {TYPE_TOTAL_LIMITS.Shield} Shields · {BODY_ARMOR_PER_DECK} Body Armor.
           </p>
         </aside>
       </div>

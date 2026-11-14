@@ -3,8 +3,9 @@
 // Public state lives on the session doc as `game` (both players can read it):
 //   phase: 'setup' | 'start' | 'draw' | 'equip' | 'strike' | 'over'
 //   round, turnNo (increments every turn), turn (uid), first (uid), winner (uid|null)
-//   players: { [uid]: { name, health, ready, dealt, deckCount, handCount, soulCount,
+//   players: { [uid]: { name, health, ready, dealt, deckCount, handCount, soul, turnsTaken,
 //                       aetherType, idolType, incantationTurn, status } }
+//     soul: banked SOUL. Each of the player's turns adds min(turnsTaken, SOUL_INCOME_CAP); unspent SOUL carries over.
 //     status: { burn 0-3, purge 0-3, freeze 0-2, frostbite 0-1, stun: null | { zone, by } }
 //   board:   { [uid]: { [zoneId]: card | { faceDown: true } , incantation: card[] } }
 //   discard: { [uid]: card[] }
@@ -25,6 +26,8 @@ export const DRAW_PER_TURN = 3;
 export const FREEZE_DRAW_LIMIT = 2;
 export const COUNTER_WINDOW_MS = 4000;
 const STATUS_DAMAGE_PER_STACK = 10;
+export const SOUL_INCOME_CAP = 6; // SOUL gained per turn ramps 1, 2, 3… up to this
+export const soulIncome = (turnsTaken) => Math.min(Math.max(turnsTaken, 1), SOUL_INCOME_CAP);
 
 export const PHASES = [
   { id: 'setup', label: 'Setup', repeats: false },
@@ -58,7 +61,8 @@ export const newPlayer = (name) => ({
   dealt: false,
   deckCount: 0,
   handCount: 0,
-  soulCount: 0,
+  soul: 0,
+  turnsTaken: 0,
   aetherType: null,
   idolType: null,
   incantationTurn: -1,
@@ -98,9 +102,9 @@ export const watchLog = (sid, cb) =>
   );
 
 // ---------- Card helpers (also used by the UI) ----------
+// Legacy SOUL resource cards (decks used to hold them). They're dropped when a deck is shuffled for a match.
 export const isSoulCard = (c) => c.cardType === 'Soul';
-export const soulInHand = (hand, exceptIid) => hand.filter((c) => isSoulCard(c) && c.iid !== exceptIid).length;
-export const canAfford = (hand, card) => soulInHand(hand, card.iid) >= (card.soulCost || 0);
+export const canAfford = (player, card) => (player?.soul || 0) >= (card.soulCost || 0);
 
 // A card can only be played if it matches the player's Aether and Idol tokens (SOUL cards are neutral).
 export const affinityOk = (player, card) =>
@@ -210,7 +214,6 @@ function act(sid, uid, fn, { withHand = false } = {}) {
       const p = game.players[uid];
       p.deckCount = ctx.hand.deck.length;
       p.handCount = ctx.hand.hand.length;
-      p.soulCount = soulInHand(ctx.hand.hand);
       tx.set(handRef(sid, uid), ctx.hand);
     }
     tx.update(sessionRef(sid), { game });
@@ -249,19 +252,24 @@ const ensureStatus = (game, uid) => {
 const bothReady = (game) =>
   Object.keys(game.players).length === 2 && Object.values(game.players).every((p) => p.ready);
 
-// Discards SOUL cards from hand to pay for `card`. Throws if the player can't afford it.
+// Spends banked SOUL to pay for `card`. Throws if the player can't afford it.
 function paySoul(ctx, card) {
   const cost = card.soulCost || 0;
   if (cost <= 0) return;
-  const available = soulInHand(ctx.hand.hand, card.iid);
-  if (available < cost) {
-    fail(`"${card.title}" costs ${cost} SOUL, but you only have ${available} SOUL card${available === 1 ? '' : 's'} in hand.`);
-  }
-  for (let paid = 0; paid < cost; paid++) {
-    const i = ctx.hand.hand.findIndex((c) => isSoulCard(c) && c.iid !== card.iid);
-    pushDiscard(ctx, ctx.uid, ctx.hand.hand.splice(i, 1)[0]);
-  }
-  ctx.log(`${ctx.name(ctx.uid)} paid ${cost} SOUL for "${card.title}".`);
+  const p = ctx.game.players[ctx.uid];
+  const available = p.soul || 0;
+  if (available < cost) fail(`"${card.title}" costs ${cost} SOUL, but you only have ${available}.`);
+  p.soul = available - cost;
+  ctx.log(`${ctx.name(ctx.uid)} spent ${cost} SOUL on "${card.title}" (${p.soul} left).`);
+}
+
+// Start of a player's turn: SOUL income ramps 1, 2, 3… per turn, capped at SOUL_INCOME_CAP. Unspent SOUL is kept.
+function gainSoul(ctx, uid) {
+  const p = ctx.game.players[uid];
+  p.turnsTaken = (p.turnsTaken || 0) + 1;
+  const gain = soulIncome(p.turnsTaken);
+  p.soul = (p.soul || 0) + gain;
+  ctx.log(`${ctx.name(uid)} gains ${gain} SOUL (${p.soul} banked).`);
 }
 
 function requireAffinity(ctx, card) {
@@ -317,9 +325,10 @@ export function setupReady(sid, uid, deckCards, aetherType, idolType) {
     if (game.phase !== 'setup') fail('Setup is already over.');
     if (game.players[uid].ready) return false;
     if (!aetherType || !idolType) fail('Choose your Aether and Idol tokens.');
-    if (deckCards.length === 0) fail('That deck has no cards.');
+    const playable = deckCards.filter((c) => !isSoulCard(c)); // SOUL is no longer a deck card
+    if (playable.length === 0) fail('That deck has no cards.');
 
-    const deck = shuffle(deckCards.map(toPlayable));
+    const deck = shuffle(playable.map(toPlayable));
     ctx.hand = { deck, hand: [], dealt: false, latent: {} };
     game.board[uid] = { incantation: [] };
     game.discard[uid] = [];
@@ -362,6 +371,7 @@ export function startReady(sid, uid) {
       game.turn = game.first;
       game.phase = 'equip'; // no Draw phase in round 1
       ctx.log(`Round 1 — ${ctx.name(game.first)} takes the first turn. (No Draw phase in round 1.)`, 'phase');
+      gainSoul(ctx, game.first);
       ctx.log(`${ctx.name(game.first)}'s Equip phase.`, 'phase');
     }
   });
@@ -372,7 +382,7 @@ export function placeCard(sid, uid, iid, zoneId) {
   return act(sid, uid, (ctx) => {
     const { game } = ctx;
     const card = findInHand(ctx, iid);
-    if (isSoulCard(card)) fail('SOUL cards are resources. Keep them in your hand to pay for other cards.');
+    if (isSoulCard(card)) fail('SOUL cards are no longer played. SOUL is gained each turn.');
 
     if (game.phase === 'start') {
       if (game.players[uid].ready) fail('You have already readied up.');
@@ -509,6 +519,7 @@ export function endPhase(sid, uid) {
     ctx.log(`${ctx.name(next)}'s turn.`, 'phase');
     startTurnEffects(ctx, next);
     if (checkDefeat(ctx)) return;
+    gainSoul(ctx, next);
 
     if (game.round === 1) {
       game.phase = 'equip';

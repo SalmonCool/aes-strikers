@@ -479,3 +479,40 @@ code {
 @keyframes preview-in { from { opacity: 0; scale: 0.92; } to { opacity: 1; scale: 1; } }
 @media (prefers-reduced-motion: reduce) { .card-preview-float { animation: none; } }
 @media (hover: none) { .card-preview-float { display: none; } }
+
+/* ---------- Lobby: player icon ---------- */
+.home-identity { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.avatar-picker { display: flex; align-items: center; gap: 10px; }
+.avatar-picker-btn {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.avatar-picker-btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 4px; }
+.avatar-picker-edit {
+  position: absolute;
+  z-index: 3;
+  inset: auto 0 -6px;
+  margin: 0 auto;
+  width: max-content;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--black);
+  background: var(--teal);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.avatar-picker-btn:hover .avatar-picker-edit,
+.avatar-picker-btn:focus-visible .avatar-picker-edit,
+.avatar-picker-btn:disabled .avatar-picker-edit { opacity: 1; }
+.avatar-picker-actions { display: none; flex-direction: column; gap: 2px; font-size: 0.8rem; }
+.avatar-picker-actions:has(button, .ui-msg) { display: flex; }
+.avatar-picker-label { color: rgba(255, 255, 255, 0.5); }
+.ui-msg.small { padding: 4px 8px; font-size: 0.75rem; }
+@media (hover: none) { .avatar-picker-edit { opacity: 1; } }

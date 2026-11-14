@@ -1,9 +1,10 @@
-import { PHASES, STARTING_HEALTH, STATUSES, opponentOf } from '../../game/engine.js';
+import { PHASES, STARTING_HEALTH, STATUSES, SOUL_INCOME_CAP, opponentOf, soulIncome } from '../../game/engine.js';
 import { zoneLabel } from '../../game/zones.js';
+import PlayerIcon from '../PlayerIcon.jsx';
 
 const SOUL_PIPS = 5; // minimum pips shown so the meter has a stable shape
 
-function HealthBar({ player, uid, isMe }) {
+function HealthBar({ player, uid, isMe, avatar }) {
   if (!player) {
     return (
       <div className="pt-player empty">
@@ -12,7 +13,8 @@ function HealthBar({ player, uid, isMe }) {
     );
   }
   const pct = Math.max(0, Math.min(100, (player.health / STARTING_HEALTH) * 100));
-  const soul = player.soulCount || 0;
+  const soul = player.soul || 0;
+  const nextGain = soulIncome((player.turnsTaken || 0) + 1);
   const st = { burn: 0, purge: 0, freeze: 0, frostbite: 0, stun: null, ...(player.status || {}) };
   const statuses = STATUSES.filter((d) => (d.id === 'stun' ? st.stun : st[d.id] > 0)).map((d) => ({
     ...d,
@@ -20,14 +22,17 @@ function HealthBar({ player, uid, isMe }) {
   }));
   return (
     <div className={`pt-player ${isMe ? 'me' : 'opp'}`} data-player-plate={uid}>
-      <div className="pt-player-name">
-        {player.name}{isMe && <span className="pt-you">You</span>}
+      <div className="pt-player-head">
+        <PlayerIcon src={avatar} name={player.name} soul={soul} size={46} />
+        <div className="pt-player-name">
+          <span className="pt-name-text">{player.name}</span>{isMe && <span className="pt-you">You</span>}
+        </div>
       </div>
       <div className="pt-health" role="meter" aria-valuemin={0} aria-valuemax={STARTING_HEALTH} aria-valuenow={player.health} aria-label={`${player.name} health`}>
         <div className="pt-health-fill" style={{ width: `${pct}%` }} />
         <span className="pt-health-text">{player.health} / {STARTING_HEALTH}</span>
       </div>
-      <div className="pt-soul" title="SOUL cards in hand. Each pays 1 SOUL toward a card's cost.">
+      <div className="pt-soul" title={`Banked SOUL, spent to play cards. +${nextGain} next turn (income grows by 1 each turn, up to ${SOUL_INCOME_CAP}). Unspent SOUL is kept.`}>
         <span className="pt-soul-label">SOUL</span>
         <span className="pt-soul-gems" aria-hidden="true">
           {Array.from({ length: Math.max(SOUL_PIPS, soul) }, (_, i) => (
@@ -36,6 +41,7 @@ function HealthBar({ player, uid, isMe }) {
         </span>
         <span className="pt-soul-value" aria-label={`${soul} SOUL available`}>{soul}</span>
       </div>
+      <div className="pt-soul-income">+{nextGain} SOUL next turn</div>
       <div className="pt-counts">
         <span>Deck {player.deckCount}</span>
         <span>Hand {player.handCount}</span>
@@ -57,7 +63,7 @@ function HealthBar({ player, uid, isMe }) {
   );
 }
 
-export default function PhaseTracker({ game, me }) {
+export default function PhaseTracker({ game, me, avatars = {} }) {
   const opp = opponentOf(game, me);
   const sharedPhase = game.phase === 'setup' || game.phase === 'start';
   const myTurn = game.turn === me;
@@ -100,8 +106,8 @@ export default function PhaseTracker({ game, me }) {
       </ol>
 
       <div className="pt-players">
-        <HealthBar player={game.players[opp]} uid={opp} />
-        <HealthBar player={game.players[me]} uid={me} isMe />
+        <HealthBar player={game.players[opp]} uid={opp} avatar={avatars[opp]} />
+        <HealthBar player={game.players[me]} uid={me} avatar={avatars[me]} isMe />
       </div>
     </div>
   );

@@ -50,6 +50,22 @@ export async function compressImage(file) {
   return url;
 }
 
+// Player icons: center-cropped to a small square so the data URL fits comfortably on the user doc.
+const AVATAR_SIZE = 256;
+export async function compressAvatar(file) {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = AVATAR_SIZE;
+  canvas.getContext('2d').drawImage(
+    bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE,
+  );
+  bitmap.close();
+  let url = canvas.toDataURL('image/webp', 0.85);
+  if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', 0.85);
+  return url;
+}
+
 // ---------- Chunk storage ----------
 const chunksCol = (ownerUid, cardId) => collection(db, 'users', ownerUid, 'cardArt', cardId, 'chunks');
 

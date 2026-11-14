@@ -1,0 +1,109 @@
+/* Player portrait + SOUL aura.
+   --size: portrait diameter. --soul: 0–1 aura strength (banked SOUL / AURA_MAX_SOUL).
+   Each SOUL step widens and brightens the aura; spending SOUL eases it back down. */
+.player-icon {
+  --size: 56px;
+  --soul: 0;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--size);
+  height: var(--size);
+}
+
+.pi-frame {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #1b3f7a, #0a1f44 70%);
+  border: 2px solid rgba(127, 247, 255, 0.55);
+  box-shadow: 0 0 0 2px rgba(3, 8, 22, 0.9), inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+.pi-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pi-initial {
+  font-family: var(--font-display, inherit);
+  font-weight: 700;
+  font-size: calc(var(--size) * 0.42);
+  color: #bff9ff;
+  text-shadow: 0 0 8px rgba(0, 229, 229, 0.6);
+}
+.player-icon.lit .pi-frame {
+  border-color: rgba(160, 230, 255, calc(0.55 + 0.45 * var(--soul)));
+  box-shadow:
+    0 0 0 2px rgba(3, 8, 22, 0.9),
+    0 0 calc(4px + 14px * var(--soul)) rgba(90, 190, 255, calc(0.3 + 0.5 * var(--soul))),
+    inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- Aura ---- */
+.pi-aura {
+  position: absolute;
+  z-index: 1;
+  inset: calc(var(--size) * (-0.1 - 0.24 * var(--soul)));
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.12; /* a faint ember with no SOUL banked */
+  filter: brightness(calc(0.75 + 0.65 * var(--soul))) saturate(calc(0.9 + 0.4 * var(--soul)));
+  transition: inset 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.7s ease, filter 0.7s ease;
+  -webkit-mask: radial-gradient(closest-side, #000 55%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 55%, transparent 100%);
+}
+.player-icon.lit .pi-aura { opacity: calc(0.35 + 0.65 * var(--soul)); }
+
+.pi-flame,
+.pi-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+/* Two counter-rotating tongues of blue fire; blurred so they read as flame rather than a ring */
+.pi-flame.f1 {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg, rgba(64, 160, 255, 0.95) 30deg, transparent 70deg,
+    rgba(127, 247, 255, 0.85) 120deg, transparent 165deg,
+    rgba(64, 140, 255, 0.95) 215deg, transparent 255deg,
+    rgba(150, 220, 255, 0.85) 300deg, transparent 345deg
+  );
+  filter: blur(calc(var(--size) * 0.07));
+  animation: pi-spin 7s linear infinite, pi-flicker 1.9s ease-in-out infinite;
+}
+.pi-flame.f2 {
+  inset: 8%;
+  background: conic-gradient(
+    from 90deg,
+    transparent 0deg, rgba(0, 229, 229, 0.8) 40deg, transparent 90deg,
+    rgba(90, 168, 255, 0.9) 160deg, transparent 210deg,
+    rgba(0, 200, 255, 0.8) 270deg, transparent 330deg
+  );
+  filter: blur(calc(var(--size) * 0.05));
+  animation: pi-spin 11s linear infinite reverse, pi-flicker 2.6s ease-in-out infinite 0.4s;
+}
+/* Soft halo, pulsing slowly like breath */
+.pi-glow {
+  inset: 14%;
+  background: radial-gradient(circle, rgba(120, 200, 255, 0.75) 45%, rgba(40, 120, 255, 0.25) 62%, transparent 72%);
+  animation: pi-breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes pi-spin { to { transform: rotate(360deg); } }
+@keyframes pi-flicker {
+  0%, 100% { opacity: 0.85; scale: 1; }
+  35% { opacity: 1; scale: 1.04; }
+  60% { opacity: 0.75; scale: 0.98; }
+}
+@keyframes pi-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-flame, .pi-glow { animation: none; }
+  .pi-aura { transition: none; }
+}

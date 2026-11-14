@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { setDeckCards, watchAllCards, watchDecks, watchProfile } from '../firebase/db.js';
-import { CARD_SETS, SOUL_CARD, starterDeckCards } from '../data/cardSets.js';
+import { CARD_SETS, starterDeckCards } from '../data/cardSets.js';
 import { expandDeck, validateDeck } from '../game/deckRules.js';
 
 export const MY_CARDS_SET_ID = 'set-mine';
@@ -15,7 +15,7 @@ export const EXAMPLE_DECKS = CARD_SETS.map((s) => ({
 
 // Everything the deck builder and arena setup need:
 //   sets:     built-in card sets + the player's own "My Cards" set
-//   catalog:  { cardId: card } for every card that can go in a deck (incl. the SOUL card)
+//   catalog:  { cardId: card } for every card that can go in a deck
 //   decks:    example decks + the player's decks, each with { entries, cards (expanded), check (validation), builtIn }
 //   activeDeckId: deck used for play (falls back to the first deck)
 export default function useDecks(uid) {
@@ -47,7 +47,7 @@ export default function useDecks(uid) {
   ], [myCards]);
 
   const catalog = useMemo(() => {
-    const all = { [SOUL_CARD.id]: SOUL_CARD };
+    const all = {};
     sets.forEach((s) => s.cards.forEach((c) => { all[c.id] = c; }));
     return all;
   }, [sets]);

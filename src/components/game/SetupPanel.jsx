@@ -24,7 +24,7 @@ export default function SetupPanel({ uid, onReady }) {
   const idol = picks[deck?.id]?.idol ?? defaults.idol ?? IDOL_TYPES[0];
   const setPick = (k, v) => setPicks((p) => ({ ...p, [deck.id]: { aether, idol, [k]: v } }));
 
-  const playable = cards.filter((c) => c.cardType === 'Soul' || (c.aetherType === aether && c.idolType === idol));
+  const playable = cards.filter((c) => c.cardType !== 'Soul' && c.aetherType === aether && c.idolType === idol);
   const unplayableTitles = [...new Set(cards.filter((c) => !playable.includes(c)).map((c) => `${c.title} (${c.aetherType}/${c.idolType})`))];
 
   const ready = async () => {
