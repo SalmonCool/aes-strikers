@@ -800,11 +800,24 @@ function applyDirectDamage(ctx, def, amount) {
     }
   }
 
+  // Body Armor reduces direct damage by its block value and takes the damage it stopped,
+  // so it wears down (and is exhausted at 0 health). Armor with no printed health just reduces.
   const armor = board['body-armor'];
   if (dmg > 0 && armor && armor.block > 0) {
-    const reduced = Math.min(armor.block, dmg);
+    const takesHits = armor.health > 0;
+    const reduced = Math.min(armor.block, dmg, takesHits ? armor.health : Infinity);
     dmg -= reduced;
-    ctx.log(`"${armor.title}" reduces direct damage by ${reduced}.`, 'damage');
+    if (takesHits) {
+      armor.health -= reduced;
+      ctx.log(`"${armor.title}" reduces direct damage by ${reduced} and takes the hit (${armor.health} health left).`, 'damage');
+      if (armor.health <= 0) {
+        delete board['body-armor'];
+        ctx.log(`"${armor.title}" is destroyed.`, 'damage');
+        removeFromPlay(ctx, def, armor);
+      }
+    } else {
+      ctx.log(`"${armor.title}" reduces direct damage by ${reduced}.`, 'damage');
+    }
   }
 
   if (dmg > 0) damagePlayer(ctx, def, dmg, 'the attack');
