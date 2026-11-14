@@ -7,7 +7,7 @@
 // Block values, taken from each card's "Reduce incoming/direct damage by X" text.
 const BLOCK = {
   Reflex: 40, 'Flatside Nail': 40, Translucence: 40, 'Brace For Impact!': 30, "Prowler's Cloak": 50,
-  'Fly! Illy!': 40, 'Summon Illy!': 40, 'Diamond Carapace': 80, Refraction: 40, 'Hidden Carapace': 50,
+  'Fly! Illy!': 40, 'Summon Illy!': 40, 'Diamond Carapace': 80, Refraction: 40, 'Hidden Carapace': 20,
 };
 
 const card = (deckId, aetherType, idolType) => (index, title, cardType, typeAction, soulCost, health, damage, description, extra = {}) => ({
@@ -99,22 +99,22 @@ const LINX_CARDS = [
 ];
 
 const DREMUR_CARDS = [
-  D(1, 'Regenerating Carapace', 'Ability', 'Equip', 0, 50, 0,
+  D(1, 'Regenerating Carapace', 'Ability', 'Equip', 0, 0, 0,
     'After 3 turns of this card being in play, return your "Armor Set" to an active state and discard this card.'),
-  D(2, 'Chain of Command-Illy', 'Ability', 'Equip', 2, 60, 0,
-    'If the card "Summon Illy" is in play, discard it. "Summon Illy" cannot be played while this card is in play. Reduce direct damage by 20. If "Summon Illy" was discarded due to this card\'s effect, add the card\'s value to this card.'),
+  D(2, 'Chain Of Command-Illy', 'Ability', 'Equip', 2, 60, 0,
+    'If the card "Summon Inty" is in play, discard it. "Summon Inty" cannot be played while this card is in play. Reduce direct damage by 20. If "Summon Inty" was discarded due to this card\'s effect, add the card\'s value to this card.'),
   D(3, 'Chain of Command-Inty', 'Ability', 'Equip', 2, 60, 20,
-    'If the card "Summon Inty" is in play, discard it. "Summon Inty" cannot be played while this card is in play. Increase all damage done by 20. If "Summon Inty" was discarded due to this card\'s effect, add the card\'s value to this card.',
+    'If the card "Summon Illy" is in play, discard it. "Summon Illy" cannot be played while this card is in play. Increase all damage done by 20. If "Summon Illy" was discarded due to this card\'s effect, add the card\'s value to this card.',
     { damagePlus: true }),
   D(4, 'Rending Carapace', 'Ability', 'Equip', 1, 40, 20,
     'When targeting equipped items, increase damage by 20. Increase this damage by 10 for each active card containing the name "Inty".',
     { damagePlus: true }),
-  D(5, 'Wand of Command', 'Weapon', 'Equip', 0, 40, 40,
+  D(5, 'Wand Of Command', 'Weapon', 'Equip', 0, 40, 40,
     'Increase the power of "Summon Inty" and "Summon Illy" by 40 as long as this card is active.'),
   D(6, 'Little Buddy', 'Shield', 'Equip', 0, 40, 0,
     'This card receives all direct damage declared until destroyed.'),
   D(7, 'Hidden Carapace', 'Body Armor', 'Equip', 0, 100, 0,
-    'Reduce direct damage by 50. Increase damage reduced by the damage counters on this card.'),
+    'Reduce direct damage by 20. Increase damage reduced by the damage counters on this card.'),
   D(8, 'Fly! Illy!', 'Defend', 'Cast', 1, 40, 0,
     'Reduce incoming damage by 40. When "Summon Illy" is in play, add that card\'s value to this card.',
     { healthPlus: true }),
@@ -124,8 +124,8 @@ const DREMUR_CARDS = [
     'Diamond Carapace: Reduce incoming direct damage by 80. If incoming damage exceeds 80, take 30 damage instead and discard a card.'),
   D(11, 'Refraction', 'Defend', 'Cast', 1, 40, 20,
     'Reduce incoming damage by 40. When damage exceeds 40, deal 20 damage to all opponent\'s equip cards.'),
-  D(12, 'Churning Constriction', 'Attack', 'Cast', 2, 0, 0,
-    'Deal X damage. If the target has the stun status, discard a random card from their hand and deal 10 damage to all of the opponent\'s equip cards.'),
+  D(12, 'Churning Constriction', 'Attack', 'Cast', 2, 0, 50,
+    'Deal 50 damage. If the target has the stun status, discard a random card from their hand and deal 10 damage to all of the opponent\'s equip cards.'),
   D(13, 'Summon Inty', 'Attack', 'Latent', 1, 80, 40,
     'During the STRIKE! phase, freely apply 40 damage. Increase this card\'s damage by 10 each time it is attacked.',
     { damagePlus: true }),
@@ -138,11 +138,11 @@ const DREMUR_CARDS = [
   D(16, 'Chain of Command: Gravity', 'Spatial', '', 0, 0, 0,
     'Any player suffering the "Stun" status loses an extra card on dice roll.'),
   D(17, 'Maxees!', 'Incantation', '', 0, 0, 0,
-    'Reduce the SOUL! cost of cards by 1.\n\nIncantations can only be played once per turn.'),
+    'Reduce the SOUL! cost of all cards played by the player by 1.\n\nIncantations can only be played once per turn.'),
   D(18, 'Grant Me!', 'Incantation', '', 0, 0, 0,
     'Incantations can only be played once per turn.'),
   D(19, 'STRENGTH!', 'Incantation', '', 0, 0, 40,
-    'Strength: Increase damage by 40.\n\nIncantations can only be played once per turn.'),
+    'Strength: Increase damage of all attacks declared by 40.\n\nIncantations can only be played once per turn.'),
   D(20, 'Tilled Earth', 'Spatial', '', 0, 0, 0,
     'Each player draws 1 additional card during their draw phase.'),
 ];
