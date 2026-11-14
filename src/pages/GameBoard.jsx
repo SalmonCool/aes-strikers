@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { joinSession, watchSession } from '../firebase/db.js';
 import {
   affinityOk, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
-  endPhase, isSoulCard, opponentOf, placeCard, playCounter, resolveWithoutCounter, revealLatent,
+  endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, playCounter, resolveWithoutCounter, revealLatent,
   setupReady, soulInHand, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
 import { ABILITY_ZONES, LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
@@ -156,7 +156,7 @@ export default function GameBoard() {
   // Is a revealed Latent card on my board usable right now?
   const usableLatent = useCallback((zone) => {
     const c = myBoard[zone];
-    if (!c || c.faceDown || !c.revealed || c.usedTurn === game?.turnNo) return false;
+    if (!c || c.faceDown || !c.revealed || c.usedTurn === game?.turnNo || isAutoLatent(c)) return false;
     if (inMyStrike) return c.cardType === 'Attack';
     if (countering) return c.cardType === 'Attack' || c.cardType === 'Defend';
     return false;

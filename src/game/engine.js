@@ -159,7 +159,9 @@ const toPlayable = (c) => ({
   health: hasNoHealth(c) ? 0 : Number(c.health) || 0,
   baseHealth: hasNoHealth(c) ? 0 : Number(c.health) || 0,
   damage: Number(c.damage) || 0,
+  baseDamage: Number(c.damage) || 0,
   block: Number(c.block) || 0,
+  baseBlock: Number(c.block) || 0,
   healthPlus: Boolean(c.healthPlus),
   damagePlus: Boolean(c.damagePlus),
   aetherType: c.aetherType,
@@ -174,7 +176,7 @@ const toPlayable = (c) => ({
 // Reset in-play state when a card returns to the deck from the discard pile.
 const freshCopy = (c) => {
   const { revealed, usedTurn, ...rest } = c; // eslint-disable-line no-unused-vars
-  return { ...rest, health: c.baseHealth ?? c.health };
+  return { ...rest, health: c.baseHealth ?? c.health, damage: c.baseDamage ?? c.damage, block: c.baseBlock ?? c.block };
 };
 
 const fail = (msg) => {
@@ -433,6 +435,11 @@ export function revealLatent(sid, uid, zoneId) {
     game.board[uid][zoneId] = { ...card, revealed: true };
     delete ctx.hand.latent[zoneId];
     ctx.log(`${ctx.name(uid)} reveals Latent "${card.title}"!`, 'attack');
+    // A STRIKE! Latent revealed during your own STRIKE! phase acts right away
+    if (inStrike) {
+      fireStrikeLatents(ctx, uid);
+      checkDefeat(ctx);
+    }
   }, { withHand: true });
 }
 
@@ -455,6 +462,13 @@ function endTurnEffects(ctx, uid) {
 }
 
 function startTurnEffects(ctx, uid) {
+  // Face-up Latent cards that grow each turn they stay active (e.g. Summon Illy!)
+  autoLatents(ctx, uid, 'reduce-incoming').forEach((c) => {
+    const grow = effectOf(c).growPerTurn || 0;
+    if (!grow) return;
+    c.block = (c.block || 0) + grow;
+    ctx.log(`"${c.title}" grows — it now reduces incoming damage by ${c.block}.`, 'counter');
+  });
   const s = ensureStatus(ctx.game, uid);
   if (s.burn > 0) damagePlayer(ctx, uid, s.burn * STATUS_DAMAGE_PER_STACK, `Burn ×${s.burn}`);
   if (s.purge > 0) damagePlayer(ctx, uid, s.purge * STATUS_DAMAGE_PER_STACK, `Purge ×${s.purge}`);
@@ -478,6 +492,8 @@ export function endPhase(sid, uid) {
     if (game.phase === 'equip') {
       game.phase = 'strike';
       ctx.log(`${ctx.name(uid)}'s STRIKE! phase.`, 'phase');
+      fireStrikeLatents(ctx, uid);
+      checkDefeat(ctx);
       return;
     }
     if (game.phase !== 'strike') fail('Nothing to end right now.');
@@ -540,6 +556,7 @@ function takeSource(ctx, source, allowedTypes, verb) {
   }
   const card = game.board[uid][source.zone];
   if (!card || card.faceDown) fail('Reveal that Latent card first.');
+  if (isAutoLatent(card)) fail(`"${card.title}" works automatically once revealed.`);
   if (!allowedTypes.includes(card.cardType)) fail(`Only ${allowedTypes.join(' or ')} cards can be used to ${verb}.`);
   if (card.usedTurn === game.turnNo) fail(`"${card.title}" has already been used this turn.`);
   card.usedTurn = game.turnNo; // SOUL was paid when it was set face-down
@@ -640,8 +657,51 @@ const EFFECTS = {
   // Ability (Equip): discard all your "Nail" cards in play; for each, opponent takes 40 damage and 1 Purge,
   // and this card's damage increases by 20.
   'Veil Piercer': { onEquip: 'veil-piercer' },
+  // Attack (Latent): once face-up, deals its damage automatically at the start of each of your STRIKE! phases
+  // (it can't be COUNTERed). Its damage grows by 10 each time it is attacked.
+  'Summon Inty': { latentAuto: 'strike-damage', growOnAttacked: 10 },
+  // Defend (Latent): once face-up, reduces every attack against you by its block value — no COUNTER! needed.
+  // The reduction grows by 20 at the start of each of your turns while it stays face-up.
+  'Summon Illy!': { latentAuto: 'reduce-incoming', growPerTurn: 20 },
 };
 const effectOf = (card) => EFFECTS[card?.title] || {};
+
+// Latent cards whose effect runs on its own once revealed (they can't be used manually).
+export const isAutoLatent = (card) => Boolean(effectOf(card).latentAuto);
+
+// Face-up Latent cards on uid's board with the given automatic effect.
+const autoLatents = (ctx, uid, kind) => {
+  const board = ctx.game.board[uid] || {};
+  return LATENT_ZONES.map((z) => board[z]).filter((c) => c && !c.faceDown && effectOf(c).latentAuto === kind);
+};
+
+// Reduces damage coming at `def` by their face-up damage-reducing Latent cards. Returns what's left.
+function reduceIncoming(ctx, def, amount) {
+  let dmg = amount;
+  autoLatents(ctx, def, 'reduce-incoming').forEach((c) => {
+    if (dmg <= 0 || !(c.block > 0)) return;
+    const reduced = Math.min(c.block, dmg);
+    dmg -= reduced;
+    ctx.log(`"${c.title}" reduces incoming damage by ${reduced}.`, 'counter');
+  });
+  return dmg;
+}
+
+// Fires uid's face-up STRIKE! Latent cards (once per turn each): direct damage that can't be COUNTERed.
+function fireStrikeLatents(ctx, uid) {
+  const { game } = ctx;
+  const opp = opponentOf(game, uid);
+  if (!opp) return;
+  autoLatents(ctx, uid, 'strike-damage').forEach((c) => {
+    if (c.usedTurn === game.turnNo || game.phase === 'over') return;
+    c.usedTurn = game.turnNo;
+    ctx.log(`"${c.title}" strikes ${ctx.name(opp)} for ${c.damage} damage!`, 'attack');
+    const dmg = reduceIncoming(ctx, opp, c.damage);
+    if (dmg > 0) applyDirectDamage(ctx, opp, dmg);
+    else ctx.log(`${ctx.name(opp)} takes no damage.`, 'counter');
+    checkDefeat(ctx);
+  });
+}
 
 // Applies a status from a card effect, respecting max stacks and special rules.
 function inflictStatus(ctx, by, target, statusId, stacks = 1, zone = null, source = '') {
@@ -776,6 +836,7 @@ function resolveAttack(ctx, counter) {
     ctx.log(`${ctx.name(def)} counters with "${counter.card.title}", ${verb} ${counter.value}.`, 'counter');
     net = applyCounterRoll(ctx, def, counter.card, net);
   }
+  if (net > 0) net = reduceIncoming(ctx, def, net);
 
   let landed = 0;
   if (net === 0) {
@@ -794,6 +855,16 @@ function resolveAttack(ctx, counter) {
         ctx.log(`"${card.title}" is destroyed.`, 'damage');
         removeFromPlay(ctx, def, card);
       }
+    }
+  }
+
+  // Cards that grow each time they're attacked (e.g. Summon Inty), if still in play
+  if (a.target.kind === 'card') {
+    const t = game.board[def][a.target.zone];
+    const grow = effectOf(t).growOnAttacked;
+    if (t && !Array.isArray(t) && grow) {
+      t.damage = (t.damage || 0) + grow;
+      ctx.log(`"${t.title}" was attacked — its damage grows to ${t.damage}.`, 'attack');
     }
   }
 
