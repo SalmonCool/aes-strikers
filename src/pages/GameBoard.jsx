@@ -3,9 +3,9 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { avatarCropOf, avatarOf, joinSession, watchProfile, watchSession } from '../firebase/db.js';
 import {
-  affinityOk, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
-  endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, playCounter, resolveWithoutCounter, revealLatent,
-  setupReady, soulIncome, startReady, validZonesFor, watchHand, watchLog,
+  affinityOk, attackBreakdown, breakdownText, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
+  endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, pickOpponentCards, playCounter, resolvePendingDiscards, resolveWithoutCounter, revealLatent,
+  setupReady, soulCostFor, soulIncome, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
 import { ABILITY_ZONES, LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
 import PlayerMat from '../components/PlayerMat.jsx';
@@ -132,6 +132,9 @@ export default function GameBoard() {
   const needsDraw = game?.phase === 'draw' && game.turn === me;
   useEffect(() => { if (needsDeal) run(dealOpeningHand(sessionId, me)); }, [needsDeal, sessionId, me, run]);
   useEffect(() => { if (needsDraw) run(drawForTurn(sessionId, me)); }, [needsDraw, sessionId, me, run]);
+  // Discards an opponent's card forced on my (private) hand
+  const needsDiscard = (game?.players[me]?.pendingDiscard || 0) > 0 || (game?.players[me]?.pendingDiscardPicks?.length || 0) > 0;
+  useEffect(() => { if (needsDiscard) run(resolvePendingDiscards(sessionId, me)); }, [needsDiscard, sessionId, me, run]);
 
   // ----- Derived state -----
   const opp = game ? opponentOf(game, me) : null;
@@ -157,8 +160,8 @@ export default function GameBoard() {
 
   // Can this hand card be paid for and played by this player at all?
   const castable = useCallback(
-    (c) => !isSoulCard(c) && affinityOk(player, c) && canAfford(player, c),
-    [player],
+    (c) => !isSoulCard(c) && affinityOk(player, c) && canAfford(game, me, c),
+    [player, game, me],
   );
 
   // Is a revealed Latent card on my board usable right now?
@@ -218,8 +221,10 @@ export default function GameBoard() {
 
   const onMyZone = (zone) => {
     if (placeZones.includes(zone)) {
-      const replacing = myBoard[zone];
-      if (replacing && !window.confirm(`Replace "${replacing.title}" with "${selectedCard.title}"? "${replacing.title}" will be discarded.`)) return;
+      const slot = myBoard[zone];
+      const replacing = slot?.faceDown ? hand?.latent?.[zone] : slot; // face-down: the real card is in my private hand
+      const title = replacing?.title || 'this card';
+      if (slot && !window.confirm(`Replace "${title}" with "${selectedCard.title}"? "${title}" will be discarded.`)) return;
       run(placeCard(sessionId, me, sel.iid, zone));
       setSel(null);
       return;
@@ -270,13 +275,21 @@ export default function GameBoard() {
   let selectionHint = '';
   if (selectedCard && sel.from === 'hand') {
     if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" is ${selectedCard.aetherType}/${selectedCard.idolType} — it doesn't match your ${player.aetherType}/${player.idolType} tokens.`;
-    else if (!canAfford(player, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${selectedCard.soulCost} SOUL. You have ${player?.soul || 0}.`;
+    else if (!canAfford(game, me, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${soulCostFor(game, me, selectedCard)} SOUL. You have ${player?.soul || 0}.`;
     else if (canPlaceNow && isCastCard(selectedCard)) selectionHint = `${selectedCard.cardType} cards are cast during STRIKE! or COUNTER!, not equipped.`;
     else if (canPlaceNow && placeZones.length === 0) selectionHint = `No open zone for "${selectedCard.title}".`;
-    else if (canPlaceNow && isLatentCard(selectedCard)) selectionHint = 'Latent card: place it face-down in a glowing Latent slot. SOUL is paid now.';
-    else if (canPlaceNow && selectedCard.cardType === 'Ability' && placeZones.some((z) => myBoard[z])) {
-      selectionHint = 'Ability: place it in an empty slot, or click an orange slot to replace that Ability (the old one is discarded).';
+    else if (canPlaceNow && isLatentCard(selectedCard)) {
+      selectionHint = placeZones.some((z) => myBoard[z])
+        ? 'Latent card: place it face-down in a glowing slot, or click an orange slot to replace that Latent card (the old one is discarded). SOUL is paid now.'
+        : 'Latent card: place it face-down in a glowing Latent slot. SOUL is paid now.';
+    } else if (canPlaceNow && placeZones.some((z) => myBoard[z])) {
+      selectionHint = `${selectedCard.cardType}: place it in an empty slot, or click an orange slot to replace that card (the old one is discarded).`;
     }
+  }
+  // Preview how a selected Attack's damage adds up before it's declared
+  if (!selectionHint && selectedCard?.cardType === 'Attack' && game.phase === 'strike' && game.turn === me) {
+    const bd = attackBreakdown(game, me, selectedCard);
+    if (bd.parts.length) selectionHint = `"${selectedCard.title}" will deal ${breakdownText(bd)} damage.`;
   }
 
   // ----- Action bar: hint + buttons for the current situation -----
@@ -294,6 +307,18 @@ export default function GameBoard() {
       hint = 'Optional: select a Body Armor card from your hand and place it, then ready up.';
       buttons.push(<button key="ready" className="ui-btn primary" onClick={() => run(startReady(sessionId, me))}>Ready to Begin</button>);
     }
+  } else if (game.pendingPick?.by === me) {
+    // I stunned the opponent: pick one of their face-down hand cards to discard (a blind pick)
+    const pk = game.pendingPick;
+    const size = game.players[pk.target]?.handCount || 0;
+    hint = `"${pk.source}": pick one of ${names[pk.target]}'s face-down cards to discard.`;
+    Array.from({ length: size }, (_, i) => buttons.push(
+      <button key={`pick${i}`} className="ui-btn pick-card" aria-label={`Card ${i + 1}`} onClick={() => run(pickOpponentCards(sessionId, me, [i]))}>
+        🂠 {i + 1}
+      </button>,
+    ));
+  } else if (game.pendingPick) {
+    hint = `${names[game.pendingPick.by]} is picking a card from ${game.pendingPick.target === me ? 'your' : `${names[game.pendingPick.target]}'s`} hand to discard…`;
   } else if (countering) {
     hint = 'COUNTER! — select an Attack or Defend card from your hand, or reveal / use a Latent card.';
     if (counterReady) {

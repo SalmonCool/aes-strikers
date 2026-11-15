@@ -36,6 +36,15 @@ export default function CounterPrompt({ attack, me, names, onCounter, onPass, on
         <strong>{names[attack.by]}</strong> strikes {target} with <strong>“{attack.card.title}”</strong>
         <span className="cp-damage">{attack.damage} DMG</span>
       </div>
+      {attack.breakdown?.parts?.length > 0 && (
+        <div className="cp-breakdown" aria-label="How the damage adds up">
+          <span className="cp-part">{attack.breakdown.base} base</span>
+          {attack.breakdown.parts.map((p, i) => (
+            <span key={i} className="cp-part bonus">+{p.amount} <small>{p.label}</small></span>
+          ))}
+          <span className="cp-part total">= {attack.damage}</span>
+        </div>
+      )}
       <div className="cp-timer"><div className="cp-timer-fill" style={{ width: `${pct}%` }} /></div>
       {isDefender ? (
         <div className="cp-actions">

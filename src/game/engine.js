@@ -104,7 +104,14 @@ export const watchLog = (sid, cb) =>
 // ---------- Card helpers (also used by the UI) ----------
 // Legacy SOUL resource cards (decks used to hold them). They're dropped when a deck is shuffled for a match.
 export const isSoulCard = (c) => c.cardType === 'Soul';
-export const canAfford = (player, card) => (player?.soul || 0) >= (card.soulCost || 0);
+// What `card` costs uid right now, after ongoing discounts (e.g. face-up "Nail": Attacks cost 1 less each).
+export const soulCostFor = (game, uid, card) => {
+  let cost = card.soulCost || 0;
+  if (card.cardType === 'Attack') cost -= latentPassiveTotal(game, uid, 'attack-discount');
+  cost -= incantationTotal(game, uid, 'cost-discount'); // awakened "Maxees!"
+  return Math.max(0, cost);
+};
+export const canAfford = (game, uid, card) => (game?.players[uid]?.soul || 0) >= soulCostFor(game, uid, card);
 
 // A card can only be played if it matches the player's Aether and Idol tokens (SOUL cards are neutral).
 export const affinityOk = (player, card) =>
@@ -113,7 +120,10 @@ export const affinityOk = (player, card) =>
 // The value a card contributes when played as a COUNTER!: Defend cards block, Attack cards strike back.
 export const counterValue = (card) => (card.cardType === 'Defend' ? card.block || 0 : card.damage || 0);
 
-// Empty zones this card may legally be placed into right now.
+// Zones that can hold a new card over the one already there (the old card is discarded).
+const REPLACEABLE_ZONES = ['spatial', ...LATENT_ZONES, ...ABILITY_ZONES];
+
+// Zones this card may legally be placed into right now (empty, or replaceable).
 export function validZonesFor(game, uid, card) {
   if (isSoulCard(card)) return [];
   const board = game.board[uid] || {};
@@ -125,8 +135,8 @@ export function validZonesFor(game, uid, card) {
     if (z === 'incantation') {
       return (board.incantation || []).length < MAX_INCANTATIONS && player.incantationTurn !== game.turnNo;
     }
-    // Abilities may replace an Ability already in play (still max 2 slots); the old one is discarded
-    if (ABILITY_ZONES.includes(z) && game.phase === 'equip') return true;
+    // Ability, Spatial and Latent cards may replace the card already in that zone; the old one is discarded
+    if (REPLACEABLE_ZONES.includes(z) && game.phase === 'equip') return true;
     return !board[z];
   });
 }
@@ -241,6 +251,13 @@ function removeFromPlay(ctx, uid, card) {
   } else {
     pushDiscard(ctx, uid, card);
   }
+  // "When this card is discarded" effects (e.g. Nail: 20 direct damage that ignores damage reduction)
+  const hit = effectOf(card).onDiscardDirect;
+  const opp = hit ? opponentOf(ctx.game, uid) : null;
+  if (opp) {
+    ctx.log(`"${card.title}" is discarded and strikes ${ctx.name(opp)} directly!`, 'attack');
+    damagePlayer(ctx, opp, hit, `"${card.title}" (ignores damage reduction)`);
+  }
 }
 
 const ensureStatus = (game, uid) => {
@@ -254,7 +271,9 @@ const bothReady = (game) =>
 
 // Spends banked SOUL to pay for `card`. Throws if the player can't afford it.
 function paySoul(ctx, card) {
-  const cost = card.soulCost || 0;
+  const cost = soulCostFor(ctx.game, ctx.uid, card);
+  const discount = (card.soulCost || 0) - cost;
+  if (discount > 0) ctx.log(`"${card.title}" costs ${discount} less SOUL thanks to ongoing effects.`);
   if (cost <= 0) return;
   const p = ctx.game.players[ctx.uid];
   const available = p.soul || 0;
@@ -390,6 +409,7 @@ export function placeCard(sid, uid, iid, zoneId) {
     } else if (game.phase === 'equip') {
       if (game.turn !== uid) fail("It's not your turn.");
       if (game.attack) fail('Resolve the current attack first.');
+      if (game.pendingPick?.by === uid) fail('Pick the card to discard first.');
     } else {
       fail('Cards can only be equipped during the Equip phase.');
     }
@@ -406,10 +426,19 @@ export function placeCard(sid, uid, iid, zoneId) {
     const board = game.board[uid];
 
     if (isLatentCard(card)) {
+      // Replacing a Latent card (face-down or revealed) discards the old one
+      const old = board[zoneId];
+      const oldCard = old?.faceDown ? ctx.hand.latent[zoneId] : old;
+      if (oldCard) {
+        delete ctx.hand.latent[zoneId];
+        removeFromPlay(ctx, uid, oldCard);
+        ctx.log(`${ctx.name(uid)} replaced ${old.faceDown ? 'a face-down' : 'the revealed'} Latent card "${oldCard.title}" in ${zoneLabel(zoneId)}. It was discarded.`);
+      }
       // Real card stays private; the board only shows a face-down card
       ctx.hand.latent[zoneId] = card;
       board[zoneId] = { faceDown: true };
       ctx.log(`${ctx.name(uid)} set a face-down Latent card in ${zoneLabel(zoneId)}.`);
+      checkDefeat(ctx); // a replaced "Nail" strikes on discard
     } else if (zoneId === 'incantation') {
       board.incantation = [...(board.incantation || []), card];
       game.players[uid].incantationTurn = game.turnNo;
@@ -498,6 +527,7 @@ export function endPhase(sid, uid) {
     const { game } = ctx;
     if (game.turn !== uid) fail("It's not your turn.");
     if (game.attack) fail('Resolve the current attack first.');
+    if (game.pendingPick?.by === uid) fail('Pick the card to discard first.');
 
     if (game.phase === 'equip') {
       game.phase = 'strike';
@@ -536,6 +566,14 @@ export function drawForTurn(sid, uid) {
     if (game.phase !== 'draw' || game.turn !== uid) return false;
     const s = ensureStatus(game, uid);
     let n = DRAW_PER_TURN;
+    // Awakened "AGILITY!": +1 draw per face-up "Nail" card (Freeze/Frostbite limits below still apply)
+    if (incantationsWith(game, uid, 'draw-per-nail').length) {
+      const nails = nailCardsInPlay(game, uid).length;
+      if (nails) {
+        n += nails;
+        ctx.log(`"AGILITY!" lets ${ctx.name(uid)} draw ${nails} extra card${nails === 1 ? '' : 's'}.`);
+      }
+    }
     if (s.frostbite) {
       n = 0;
       ctx.log(`${ctx.name(uid)} has Frostbite and cannot draw this turn.`, 'status');
@@ -586,6 +624,7 @@ export function declareAttack(sid, uid, source, target, opts = {}) {
     const { game } = ctx;
     if (game.phase !== 'strike' || game.turn !== uid) fail('Attacks can only be declared during your STRIKE! phase.');
     if (game.attack) fail('An attack is already in progress.');
+    if (game.pendingPick) fail('Finish picking the card to discard first.');
     const defender = opponentOf(game, uid);
     if (target.kind === 'card') {
       const t = game.board[defender]?.[target.zone];
@@ -593,20 +632,37 @@ export function declareAttack(sid, uid, source, target, opts = {}) {
     }
 
     const { card, fromLatent } = takeSource(ctx, source, ['Attack'], 'attack');
+    const breakdown = attackBreakdown(game, uid, card);
     game.attack = {
       id: crypto.randomUUID(),
       by: uid,
       defender,
       card,
       fromLatent,
-      damage: card.damage,
+      damage: breakdown.total,
+      breakdown: { base: breakdown.base, parts: breakdown.parts },
       target,
       targetTitle: target.kind === 'card' ? game.board[defender][target.zone].title : null,
       status: 'open',
       at: Date.now(),
     };
     game.clash = { by: uid, defender, attackCard: card, counterCard: null };
-    ctx.log(`${ctx.name(uid)} attacks ${targetLabel(ctx, defender, target)} with "${card.title}" for ${card.damage} damage!`, 'attack');
+    ctx.log(`${ctx.name(uid)} attacks ${targetLabel(ctx, defender, target)} with "${card.title}" for ${breakdown.total} damage!`, 'attack');
+    if (breakdown.parts.length) ctx.log(`"${card.title}" damage: ${breakdownText(breakdown)}.`, 'attack');
+
+    const fx = effectOf(card);
+    if (fx.onDeclare === 'lunge-search') {
+      forceHandDiscard(ctx, uid, 1, card.title);
+      const i = ctx.hand.deck.findIndex((c) => c.title === fx.search);
+      if (i >= 0) {
+        const [found] = ctx.hand.deck.splice(i, 1);
+        ctx.hand.hand.push(found);
+        ctx.hand.deck = shuffle(ctx.hand.deck);
+        ctx.log(`${ctx.name(uid)} searches their deck and adds "${found.title}" to their hand.`);
+      } else {
+        ctx.log(`${ctx.name(uid)} searches their deck but finds no "${fx.search}".`);
+      }
+    }
 
     if (card.inflictStatus) {
       const inflict = { status: card.inflictStatus, stacks: card.inflictStacks || 1, on: card.inflictOn || 'hit', zone: opts.stunZone || null };
@@ -635,7 +691,13 @@ export function playCounter(sid, uid, source) {
     const a = ctx.game.attack;
     if (!a || a.status !== 'countering' || a.defender !== uid) fail('There is no COUNTER! to play.');
     const { card, fromLatent } = takeSource(ctx, source, ['Attack', 'Defend'], 'COUNTER!');
-    resolveAttack(ctx, { card, fromLatent, value: counterValue(card) });
+    // Face-up "Flatside Nail": Defend cards block 40 more for each one
+    const boost = card.cardType === 'Defend' ? latentPassiveTotal(ctx.game, uid, 'defend-boost') : 0;
+    if (boost) ctx.log(`Face-up Latent cards boost "${card.title}" by ${boost}.`, 'counter');
+    // Attack cards struck back with keep their damage bonuses (e.g. Springboard's "Nail" bonus)
+    const bd = card.cardType === 'Attack' ? attackBreakdown(ctx.game, uid, card) : null;
+    if (bd?.parts.length) ctx.log(`"${card.title}" damage: ${breakdownText(bd)}.`, 'counter');
+    resolveAttack(ctx, { card, fromLatent, value: (bd ? bd.total : counterValue(card)) + boost });
   }, { withHand: true });
 }
 
@@ -674,7 +736,158 @@ const EFFECTS = {
   // Defend (Latent): once face-up, reduces every attack against you by its block value — no COUNTER! needed.
   // The reduction grows by 20 at the start of each of your turns while it stays face-up.
   'Summon Illy!': { latentAuto: 'reduce-incoming', growPerTurn: 20 },
+  // Latent cards with an ongoing effect while face-up (they can still be used manually as normal):
+  // Attack (Latent): Attack cards cost 1 less SOUL for each face-up "Nail".
+  // When it's discarded from play (destroyed, replaced, or discarded by "Veil Piercer"), it deals 20 damage
+  // straight to the opponent, skipping Shields, Body Armor and other damage reduction.
+  Nail: { latentPassive: 'attack-discount', amount: 1, onDiscardDirect: 20 },
+  // Defend (Latent): Defend cards played as a COUNTER! block 40 more for each face-up "Flatside Nail".
+  'Flatside Nail': { latentPassive: 'defend-boost', amount: 40 },
+  // Attack: +20 damage for each face-up card with "Nail" in its name on the attacker's board.
+  Springboard: { attackBonus: { per: 'nail', amount: 20 } },
+  // Attack: when it lands on a stunned opponent, they discard a random card from their hand.
+  'Churning Constriction': { onHitStunnedDiscard: 1 },
+  // Attack: on declaring, discard a random card from your hand and search your deck for "Churning Constriction".
+  'Reckless Lunge': { onDeclare: 'lunge-search', search: 'Churning Constriction' },
+  // Defend: if the attack is bigger than what it blocks, you take 30 instead and discard a random card.
+  'Diamond Carapace': { overflow: { take: 30, discard: 1 } },
+
+  // Incantations: their effects switch on once all MAX_INCANTATIONS are set ("awakened") and last for the
+  // rest of the game. Incantations can't be targeted or discarded, so nothing ends them early.
+  // AGILITY!: draw extra cards in your draw phase equal to your face-up "Nail" cards in play.
+  'AGILITY!': { incantation: 'draw-per-nail' },
+  // Maxees!: every card you play costs 1 less SOUL.
+  'Maxees!': { incantation: 'cost-discount', amount: 1 },
+  // STRENGTH!: every attack you declare deals 40 more damage.
+  'STRENGTH!': { incantation: 'attack-boost', amount: 40 },
+  // MEENOS!: you keep cards you'd be forced to discard from your hand (by card effects).
+  'MEENOS!': { incantation: 'retain-hand' },
 };
+
+// uid's Incantations, but only once all of them are set (until then they're dormant).
+export function awakenedIncantations(game, uid) {
+  const list = game?.board?.[uid]?.incantation || [];
+  return list.length >= MAX_INCANTATIONS ? list : [];
+}
+// The awakened Incantations of uid with the given effect.
+const incantationsWith = (game, uid, kind) => awakenedIncantations(game, uid).filter((c) => effectOf(c).incantation === kind);
+// A card effect forces uid to discard `n` random cards from their hand. Awakened "MEENOS!" prevents it.
+// Hands are private, so if uid isn't the one acting, the discard is queued and uid's client carries it out.
+// opts.chooser: that player picks which of uid's face-down hand cards go (see pickOpponentCards).
+function forceHandDiscard(ctx, uid, n, source, { chooser } = {}) {
+  if (n <= 0) return;
+  const meenos = incantationsWith(ctx.game, uid, 'retain-hand')[0];
+  if (meenos) {
+    ctx.log(`"${meenos.title}" lets ${ctx.name(uid)} keep the card${n === 1 ? '' : 's'} "${source}" would discard.`, 'counter');
+    return;
+  }
+  if (chooser) {
+    if (!(ctx.game.players[uid]?.handCount > 0)) {
+      ctx.log(`${ctx.name(uid)} has no cards in hand to discard.`);
+      return;
+    }
+    ctx.game.pendingPick = { by: chooser, target: uid, n, source };
+    ctx.log(`${ctx.name(chooser)} picks ${n === 1 ? 'a card' : `${n} cards`} from ${ctx.name(uid)}'s hand to discard ("${source}").`, 'attack');
+    return;
+  }
+  if (ctx.uid === uid && ctx.hand) discardRandomFromHand(ctx, n, source);
+  else {
+    const p = ctx.game.players[uid];
+    p.pendingDiscard = (p.pendingDiscard || 0) + n;
+    p.pendingDiscardSource = source;
+  }
+}
+function discardRandomFromHand(ctx, n, source) {
+  const { hand, uid } = ctx;
+  for (let i = 0; i < n; i++) {
+    if (!hand.hand.length) {
+      ctx.log(`${ctx.name(uid)} has no cards left to discard.`);
+      return;
+    }
+    const [c] = hand.hand.splice(Math.floor(Math.random() * hand.hand.length), 1);
+    pushDiscard(ctx, uid, c);
+    ctx.log(`"${source}" makes ${ctx.name(uid)} discard "${c.title}" from their hand.`, 'damage');
+  }
+}
+// Carries out discards queued against uid while the opponent was acting (run by uid's own client).
+export function resolvePendingDiscards(sid, uid) {
+  return act(sid, uid, (ctx) => {
+    const p = ctx.game.players[uid];
+    const n = p?.pendingDiscard || 0;
+    const picks = p?.pendingDiscardPicks || [];
+    if (!n && !picks.length) return false;
+    const source = p.pendingDiscardSource || 'A card effect';
+    p.pendingDiscard = 0;
+    delete p.pendingDiscardPicks;
+    delete p.pendingDiscardSource;
+    // Re-check MEENOS! in case it awakened in the meantime
+    const meenos = incantationsWith(ctx.game, uid, 'retain-hand')[0];
+    if (meenos) {
+      ctx.log(`"${meenos.title}" lets ${ctx.name(uid)} keep the cards "${source}" would discard.`, 'counter');
+      return;
+    }
+    // Cards the opponent picked by position, highest first so earlier positions stay valid
+    [...new Set(picks)].sort((x, y) => y - x).forEach((i) => {
+      if (i < 0 || i >= ctx.hand.hand.length) return;
+      const [c] = ctx.hand.hand.splice(i, 1);
+      pushDiscard(ctx, uid, c);
+      ctx.log(`"${source}" makes ${ctx.name(uid)} discard "${c.title}" from their hand.`, 'damage');
+    });
+    if (n) discardRandomFromHand(ctx, n, source);
+  }, { withHand: true });
+}
+
+// The player who stunned picks which of the opponent's face-down hand cards to discard.
+// positions: indexes into the opponent's hand (they only see card backs, so it's a blind pick).
+export function pickOpponentCards(sid, uid, positions) {
+  return act(sid, uid, (ctx) => {
+    const { game } = ctx;
+    const pk = game.pendingPick;
+    if (!pk || pk.by !== uid) fail('There is no card to pick.');
+    const target = game.players[pk.target];
+    const size = target.handCount || 0;
+    const need = Math.min(pk.n, size);
+    const chosen = [...new Set(positions)].filter((i) => Number.isInteger(i) && i >= 0 && i < size);
+    if (chosen.length !== need) fail(`Pick ${need} card${need === 1 ? '' : 's'}.`);
+    target.pendingDiscardPicks = [...(target.pendingDiscardPicks || []), ...chosen];
+    target.pendingDiscardSource = pk.source;
+    game.pendingPick = null;
+  });
+}
+const incantationTotal = (game, uid, kind) => incantationsWith(game, uid, kind).reduce((s, c) => s + (effectOf(c).amount || 0), 0);
+
+// Face-up cards on uid's board whose name contains "Nail" ("Nail", "Flatside Nail", ...).
+const isNailCard = (c) => /\bnail\b/i.test(c?.title || '');
+export function nailCardsInPlay(game, uid) {
+  const board = game?.board?.[uid] || {};
+  return PLAYABLE_ZONES.filter((z) => z !== 'incantation').map((z) => board[z]).filter((c) => c && !c.faceDown && isNailCard(c));
+}
+
+// How an Attack card's damage adds up right now: { base, parts: [{ label, amount }], total }.
+// Used both to resolve the attack and to show players the math.
+export function attackBreakdown(game, uid, card) {
+  const base = Number(card?.damage) || 0;
+  const parts = [];
+  const bonus = effectOf(card).attackBonus;
+  if (bonus?.per === 'nail') {
+    const n = nailCardsInPlay(game, uid).filter((c) => c !== card).length;
+    if (n) parts.push({ label: `${n} "Nail" card${n === 1 ? '' : 's'} in play`, amount: bonus.amount * n });
+  }
+  incantationsWith(game, uid, 'attack-boost').forEach((c) => parts.push({ label: c.title, amount: effectOf(c).amount }));
+  return { base, parts, total: parts.reduce((s, p) => s + p.amount, base) };
+}
+export const breakdownText = ({ base, parts, total }) =>
+  parts.length ? `${base} + ${parts.map((p) => `${p.amount} (${p.label})`).join(' + ')} = ${total}` : `${total}`;
+
+// Total of an ongoing face-up Latent effect on uid's board (face-down cards don't count).
+function latentPassiveTotal(game, uid, kind) {
+  const board = game?.board?.[uid] || {};
+  return LATENT_ZONES.reduce((sum, z) => {
+    const c = board[z];
+    const fx = c && !c.faceDown ? effectOf(c) : {};
+    return fx.latentPassive === kind ? sum + (fx.amount || 0) : sum;
+  }, 0);
+}
 const effectOf = (card) => EFFECTS[card?.title] || {};
 
 // Latent cards whose effect runs on its own once revealed (they can't be used manually).
@@ -859,20 +1072,25 @@ function resolveAttack(ctx, counter) {
     const verb = counter.card.cardType === 'Defend' ? 'blocking' : 'striking back for';
     ctx.log(`${ctx.name(def)} counters with "${counter.card.title}", ${verb} ${counter.value}.`, 'counter');
     net = applyCounterRoll(ctx, def, counter.card, net);
+    // "Diamond Carapace": if the attack exceeds what it blocks, take a fixed amount instead and discard a card
+    const over = effectOf(counter.card).overflow;
+    if (over && a.damage > counter.value) {
+      net = over.take;
+      ctx.log(`The attack exceeds "${counter.card.title}" — ${ctx.name(def)} takes ${over.take} instead.`, 'counter');
+      forceHandDiscard(ctx, def, over.discard, counter.card.title);
+    }
   }
   if (net > 0) net = reduceIncoming(ctx, def, net);
 
-  let landed = 0;
   if (net === 0) {
     ctx.log('The attack is fully countered!', 'counter');
   } else if (a.target.kind === 'player') {
-    landed = applyDirectDamage(ctx, def, net);
+    applyDirectDamage(ctx, def, net);
   } else {
     const card = game.board[def][a.target.zone];
     if (card && !Array.isArray(card)) {
       const before = card.health;
       card.health = Math.max(0, card.health - net);
-      landed = before - card.health;
       ctx.log(`"${card.title}" takes ${net} damage (${before} → ${card.health}).`, 'damage');
       if (card.health <= 0) {
         delete game.board[def][a.target.zone];
@@ -892,10 +1110,15 @@ function resolveAttack(ctx, counter) {
     }
   }
 
-  // On-hit status from the attacking card (e.g. Burn) once damage actually lands
-  if (a.inflict?.on === 'hit' && landed > 0) {
+  // Attack effects go off even when the damage is fully blocked — COUNTER! and reductions only stop damage.
+  // Status from the attacking card (e.g. Burn)
+  if (a.inflict?.on === 'hit') {
     inflictStatus(ctx, a.by, def, a.inflict.status, a.inflict.stacks, a.inflict.zone, a.card.title);
   }
+  // "Churning Constriction": against a stunned opponent, the player who stunned them picks a card from their hand to discard
+  const stunDiscard = effectOf(a.card).onHitStunnedDiscard;
+  const stun = statusOf(game, def).stun;
+  if (stunDiscard && stun) forceHandDiscard(ctx, def, stunDiscard, a.card.title, { chooser: stun.by || a.by });
 
   // Cast cards are spent; revealed Latent cards stay in play
   if (!a.fromLatent) pushDiscard(ctx, a.by, a.card);
