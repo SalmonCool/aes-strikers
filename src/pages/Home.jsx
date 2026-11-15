@@ -28,7 +28,7 @@ export default function Home() {
       <div className="page-inner">
         <header className="page-header">
           <div className="home-identity">
-            <AvatarPicker uid={user.uid} name={displayNameOf(user)} />
+            <AvatarPicker />
             <div>
               <h1 className="page-title">AES <span className="accent">STRIKERS</span></h1>
               <p className="page-sub">Welcome, {displayNameOf(user)}</p>

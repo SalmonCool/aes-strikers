@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { avatarOf, joinSession, watchProfile, watchSession } from '../firebase/db.js';
+import { avatarCropOf, avatarOf, joinSession, watchProfile, watchSession } from '../firebase/db.js';
 import {
   affinityOk, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
   endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, playCounter, resolveWithoutCounter, revealLatent,
@@ -141,7 +141,7 @@ export default function GameBoard() {
   const [avatars, setAvatars] = useState({});
   useEffect(() => {
     const uids = [me, opp].filter(Boolean);
-    const unsubs = uids.map((u) => watchProfile(u, (p) => setAvatars((a) => ({ ...a, [u]: avatarOf(p) }))));
+    const unsubs = uids.map((u) => watchProfile(u, (p) => setAvatars((a) => ({ ...a, [u]: { src: avatarOf(p), crop: avatarCropOf(p) } }))));
     return () => unsubs.forEach((un) => un());
   }, [me, opp]);
   const myBoard = useMemo(() => game?.board[me] || {}, [game, me]);

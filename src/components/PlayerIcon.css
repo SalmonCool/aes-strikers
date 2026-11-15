@@ -107,3 +107,162 @@
   .pi-flame, .pi-glow { animation: none; }
   .pi-aura { transition: none; }
 }
+
+/* ======================= Status effects ======================= */
+.pi-status { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+
+/* ---- Burn: a red-orange wisp with a fading tail, circling once every few seconds ---- */
+.pi-burn {
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  opacity: 0;
+  animation: pi-burn-orbit 4.2s ease-in-out infinite;
+}
+.pi-burn::before {
+  /* the tail: a thin arc trailing behind the wisp */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg 285deg, rgba(255, 70, 30, 0.35) 320deg, rgba(255, 150, 50, 0.85) 358deg, transparent 360deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 80%, #000 84%, #000 94%, transparent 100%);
+  mask: radial-gradient(closest-side, transparent 80%, #000 84%, #000 94%, transparent 100%);
+  filter: blur(1px);
+}
+.pi-wisp {
+  position: absolute;
+  top: -4%;
+  left: 50%;
+  width: calc(var(--size) * 0.2);
+  height: calc(var(--size) * 0.2);
+  margin-left: calc(var(--size) * -0.1);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: radial-gradient(circle at 50% 60%, #fff3b0 0%, #ffb340 35%, #ff4a1c 70%, transparent 75%);
+  box-shadow: 0 0 calc(var(--size) * 0.14) rgba(255, 110, 40, 0.9);
+  animation: pi-wisp-flicker 0.35s ease-in-out infinite alternate;
+}
+@keyframes pi-burn-orbit {
+  0% { transform: rotate(0deg); opacity: 0; }
+  6% { opacity: 1; }
+  42% { opacity: 1; }
+  50% { transform: rotate(360deg); opacity: 0; }
+  100% { transform: rotate(360deg); opacity: 0; }
+}
+@keyframes pi-wisp-flicker {
+  from { transform: scale(0.9); }
+  to { transform: scale(1.12); }
+}
+
+/* ---- Purge: a bright teal flame surging from the bottom of the icon to the top, then dissipating ---- */
+.pi-purge {
+  position: absolute;
+  inset: -12%;
+  overflow: hidden;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(closest-side, #000 78%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 78%, transparent 100%);
+}
+.pi-surge {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 100%;
+  height: 90%;
+  border-radius: 50% 50% 45% 45% / 70% 70% 30% 30%;
+  background:
+    radial-gradient(ellipse at 50% 85%, rgba(230, 255, 252, 0.95) 0%, rgba(80, 255, 230, 0.85) 30%, rgba(0, 200, 190, 0.45) 60%, transparent 75%);
+  filter: blur(calc(var(--size) * 0.03));
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: pi-purge-surge 3.8s cubic-bezier(0.3, 0.1, 0.3, 1) infinite 0.6s;
+}
+@keyframes pi-purge-surge {
+  0% { transform: translateY(0) scaleY(0.6); opacity: 0; }
+  8% { opacity: 1; }
+  32% { transform: translateY(-150%) scaleY(1.25); opacity: 0.85; }
+  44% { transform: translateY(-200%) scaleY(1.5) scaleX(1.3); opacity: 0; }
+  100% { transform: translateY(-200%); opacity: 0; }
+}
+
+/* ---- Freeze: ice crystals around the rim, one per stack; they melt (shrink, drip, fade) when lost ---- */
+.pi-crystal {
+  position: absolute;
+  width: calc(var(--size) * 0.26);
+  height: calc(var(--size) * 0.38);
+  /* The glow lives on this element; the crystal shape is clipped on ::before (a clip would hide the glow) */
+  filter: drop-shadow(0 0 3px rgba(150, 220, 255, 0.9));
+  opacity: 0;
+  transform: rotate(var(--r)) translateY(25%) scale(0.4, 0.1);
+  transform-origin: 50% 100%;
+  transition: opacity 0.9s ease, transform 0.9s cubic-bezier(0.4, 0, 0.6, 1);
+}
+.pi-crystal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(50% 0%, 85% 35%, 62% 100%, 38% 100%, 15% 35%);
+  background: linear-gradient(160deg, #ffffff 0%, #c8f2ff 30%, #6cc8ff 70%, #3a8ce0 100%);
+}
+.pi-crystal::after {
+  /* frosty highlight */
+  content: '';
+  position: absolute;
+  inset: 12% 45% 30% 30%;
+  background: rgba(255, 255, 255, 0.75);
+  clip-path: polygon(50% 0, 100% 40%, 40% 100%);
+}
+.pi-crystal.on {
+  opacity: 1;
+  transform: rotate(var(--r)) translateY(0) scale(1);
+  transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.3, 1.6, 0.5, 1);
+  animation: pi-crystal-shine 3s ease-in-out infinite;
+}
+.pi-crystal.c1 { --r: -35deg; left: -6%; bottom: 0%; }
+.pi-crystal.c2 { --r: 30deg; right: -6%; bottom: 4%; }
+.pi-crystal.c3 { --r: -10deg; left: 30%; top: -26%; }
+@keyframes pi-crystal-shine {
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(150, 220, 255, 0.9)) brightness(1); }
+  50% { filter: drop-shadow(0 0 6px rgba(190, 240, 255, 1)) brightness(1.2); }
+}
+
+/* ---- Stun: a ring of stars swirling around the icon ---- */
+.pi-stun {
+  position: absolute;
+  inset: -16%;
+  animation: pi-spin 2.6s linear infinite;
+}
+.pi-star-arm {
+  position: absolute;
+  inset: 0;
+  transform: rotate(calc(360deg / var(--n) * var(--i)));
+}
+.pi-star {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: calc(var(--size) * 0.18);
+  height: calc(var(--size) * 0.18);
+  margin-left: calc(var(--size) * -0.09);
+  filter: drop-shadow(0 0 3px rgba(255, 220, 90, 0.95));
+  animation: pi-star-twinkle 0.9s ease-in-out infinite alternate;
+  animation-delay: calc(var(--i) * -0.18s);
+}
+.pi-star::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  background: radial-gradient(circle, #fffbe0 0%, #ffe066 45%, #ffb703 100%);
+}
+@keyframes pi-star-twinkle {
+  from { transform: scale(0.75) rotate(0deg); opacity: 0.75; }
+  to { transform: scale(1.1) rotate(36deg); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-burn { animation: none; opacity: 1; }
+  .pi-wisp, .pi-star, .pi-crystal.on { animation: none; }
+  .pi-surge { animation: none; opacity: 0.6; transform: translateY(-110%); }
+  .pi-stun { animation: none; }
+}

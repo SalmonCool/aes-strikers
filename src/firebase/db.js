@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './config.js';
 import { hasNoHealth } from '../game/zones.js';
-import { DEFAULT_CROP, addArtDeletesToBatch, addArtToBatch, forgetArt, normalizeCrop } from './cardArt.js';
+import { AVATAR_ZOOM, DEFAULT_CROP, addArtDeletesToBatch, addArtToBatch, forgetArt, normalizeCrop } from './cardArt.js';
 import { newGame, newPlayer } from '../game/engine.js';
 
 export const displayNameOf = (user) => user.displayName || user.email?.split('@')[0] || 'Player';
@@ -32,12 +32,23 @@ export function saveUserProfile(user) {
   );
 }
 
-// Player icon: a small square data URL (see compressAvatar) stored on the user doc, or '' to remove it.
+// Player icon: a small data URL (see compressAvatar) plus how it's framed, stored on the user doc.
 // Readable by any signed-in player so opponents see it in the arena.
-export const setAvatar = (uid, dataUrl) => setDoc(doc(db, 'users', uid), { avatar: dataUrl || '' }, { merge: true });
+//   avatar: data URL | ''   avatarCrop: { x, y, zoom } (same crop format as card art)
+// `avatar` undefined = keep the current image (e.g. only re-framing).
+export const saveAvatar = (uid, avatar, crop) => setDoc(
+  doc(db, 'users', uid),
+  { ...(avatar !== undefined && { avatar: avatar || '' }), avatarCrop: normalizeCrop(crop, AVATAR_ZOOM) },
+  { merge: true },
+);
 
-// The image to show for a profile: custom icon first, then the sign-in provider's photo.
+// The image (and its framing) to show for a profile: custom icon first, then the sign-in provider's photo.
 export const avatarOf = (profile) => profile?.avatar || profile?.photoURL || '';
+export const avatarCropOf = (profile) => (profile?.avatar ? normalizeCrop(profile.avatarCrop, AVATAR_ZOOM) : DEFAULT_CROP);
+
+// Display names: 1–24 characters, shown in the lobby, arenas and friend lists.
+export const MAX_NAME_LENGTH = 24;
+export const cleanDisplayName = (name) => (name || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME_LENGTH);
 
 export async function findUserByEmail(email) {
   const q = query(collection(db, 'users'), where('emailLower', '==', email.trim().toLowerCase()), limit(1));

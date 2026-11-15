@@ -17,6 +17,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(Boolean(auth));
+  const [, setNameVersion] = useState(0);
 
   useEffect(() => {
     if (!auth) return;
@@ -41,6 +42,12 @@ export function AuthProvider({ children }) {
       return cred;
     },
     resetPassword: (email) => sendPasswordResetEmail(auth, email),
+    // Changes the signed-in player's display name (sign-in account + public profile).
+    updateDisplayName: async (displayName) => {
+      await updateProfile(auth.currentUser, { displayName });
+      await saveUserProfile(auth.currentUser);
+      setNameVersion((v) => v + 1); // Firebase updates the user object in place, so re-render consumers
+    },
     logout: () => signOut(auth),
   };
 

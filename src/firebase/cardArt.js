@@ -18,17 +18,21 @@ const CHUNK_CHARS = 900_000; // stays safely under Firestore's 1 MiB document li
 export const DEFAULT_CROP = { x: 0.5, y: 0.5, zoom: 1 };
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
+export const CARD_ZOOM = { min: MIN_ZOOM, max: MAX_ZOOM };
+// Player icons can zoom out below 1 (whole photo inside the circle) and further in, to focus on a detail.
+export const AVATAR_ZOOM = { min: 0.5, max: 6 };
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-export const normalizeCrop = (c) => ({
+// `limits`: allowed zoom range (CARD_ZOOM for card art, AVATAR_ZOOM for player icons).
+export const normalizeCrop = (c, limits = CARD_ZOOM) => ({
   x: clamp(Number(c?.x ?? 0.5) || 0, 0, 1),
   y: clamp(Number(c?.y ?? 0.5) || 0, 0, 1),
-  zoom: clamp(Number(c?.zoom ?? 1) || 1, MIN_ZOOM, MAX_ZOOM),
+  zoom: clamp(Number(c?.zoom ?? 1) || 1, limits.min, limits.max),
 });
 
 // Inline style that applies a crop to an <img> filling its frame.
-export function cropStyle(crop) {
-  const { x, y, zoom } = normalizeCrop(crop);
+export function cropStyle(crop, limits = CARD_ZOOM) {
+  const { x, y, zoom } = normalizeCrop(crop, limits);
   const pos = `${x * 100}% ${y * 100}%`;
   return { objectFit: 'cover', objectPosition: pos, transformOrigin: pos, transform: `scale(${zoom})` };
 }
@@ -50,16 +54,16 @@ export async function compressImage(file) {
   return url;
 }
 
-// Player icons: center-cropped to a small square so the data URL fits comfortably on the user doc.
-const AVATAR_SIZE = 256;
+// Player icons: the whole image is kept (resized small so the data URL fits comfortably on the user doc);
+// the profile's `avatarCrop` decides which part shows in the round frame, just like card art.
+const AVATAR_MAX = 512;
 export async function compressAvatar(file) {
   const bitmap = await createImageBitmap(file);
-  const side = Math.min(bitmap.width, bitmap.height);
+  const scale = Math.min(1, AVATAR_MAX / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = AVATAR_SIZE;
-  canvas.getContext('2d').drawImage(
-    bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE,
-  );
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
   let url = canvas.toDataURL('image/webp', 0.85);
   if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', 0.85);

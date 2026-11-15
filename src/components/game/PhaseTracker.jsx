@@ -23,7 +23,7 @@ function HealthBar({ player, uid, isMe, avatar }) {
   return (
     <div className={`pt-player ${isMe ? 'me' : 'opp'}`} data-player-plate={uid}>
       <div className="pt-player-head">
-        <PlayerIcon src={avatar} name={player.name} soul={soul} size={46} />
+        <PlayerIcon src={avatar?.src} crop={avatar?.crop} name={player.name} soul={soul} status={st} size={46} />
         <div className="pt-player-name">
           <span className="pt-name-text">{player.name}</span>{isMe && <span className="pt-you">You</span>}
         </div>
