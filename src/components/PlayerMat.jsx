@@ -27,7 +27,7 @@ const CardSlot = ({ card, className = '' }) => {
 //   highlight:    Map zoneId -> 'place' | 'target' | 'reveal' | 'use' | 'selected'
 export default function PlayerMat({
   side, owner, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [], exhausted = [],
-  stunZone, clashCard, turnNo, highlight, onZoneClick,
+  stunZone, clashCard, turnNo, highlight, onZoneClick, viewablePiles = [], onPileClick,
 }) {
   const [hover, setHover] = useState(null); // { card, rect }
 
@@ -40,6 +40,9 @@ export default function PlayerMat({
       {ZONES.map((z) => {
         const item = board[z.id];
         const lit = highlight?.get(z.id);
+        // Deck / discard piles that can be opened to look through (when not lit for something else)
+        const viewable = !lit && onPileClick && viewablePiles.includes(z.id);
+        const click = lit ? () => onZoneClick(z.id) : viewable ? () => onPileClick(z.id) : null;
         const label = <span className="zone-label">{z.label}</span>;
         let content = label;
         let filled = false;
@@ -100,14 +103,15 @@ export default function PlayerMat({
         return (
           <div
             key={z.id}
-            className={`zone zone-${z.id} ${filled ? 'filled' : ''} ${lit ? `lit ${lit}` : ''}`}
+            className={`zone zone-${z.id} ${filled ? 'filled' : ''} ${lit ? `lit ${lit}` : ''} ${viewable ? 'viewable' : ''}`}
             data-zone={z.id}
             style={{ gridColumn: z.span ? `${z.col} / span ${z.span}` : z.col, gridRow: z.row }}
-            onClick={lit ? () => onZoneClick(z.id) : undefined}
-            role={lit ? 'button' : undefined}
-            tabIndex={lit ? 0 : undefined}
-            onKeyDown={lit ? (e) => (e.key === 'Enter' || e.key === ' ') && onZoneClick(z.id) : undefined}
-            aria-label={lit ? `${z.label}${item?.title ? `: ${item.title}` : ''}` : undefined}
+            onClick={click || undefined}
+            role={click ? 'button' : undefined}
+            tabIndex={click ? 0 : undefined}
+            onKeyDown={click ? (e) => (e.key === 'Enter' || e.key === ' ') && click() : undefined}
+            aria-label={viewable ? `View ${z.label.toLowerCase()}` : lit ? `${z.label}${item?.title ? `: ${item.title}` : ''}` : undefined}
+            title={viewable ? `Click to view ${z.label.toLowerCase()}` : undefined}
           >
             {content}
             {stunZone === z.id && <span className="zone-stunned">Stunned</span>}

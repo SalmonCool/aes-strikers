@@ -892,3 +892,18 @@
   .fx-ember { display: none; }
   .fx-burst-core, .fx-burst-ring { animation-duration: 0.4s; }
 }
+
+/* ---- Deck / discard viewer ---- */
+.zone.viewable { cursor: pointer; }
+.zone.viewable:hover { border-color: rgba(127, 247, 255, 0.7); box-shadow: 0 0 1.2cqw rgba(127, 247, 255, 0.35); }
+.zone.viewable:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; }
+.pile-viewer { max-width: 920px; }
+.pile-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pile-head h2 { margin: 0; }
+.pile-count { font-size: 0.8em; opacity: 0.7; margin-left: 4px; }
+.pile-note { margin: 6px 0 14px; opacity: 0.75; font-size: 0.9rem; }
+.pile-empty { opacity: 0.7; text-align: center; padding: 24px 0; }
+.pile-group + .pile-group { margin-top: 16px; }
+.pile-group h3 { margin: 0 0 8px; font-size: 1rem; }
+.pile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.pile-card { container-type: inline-size; cursor: default; }

@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { avatarCropOf, avatarOf, joinSession, watchProfile, watchSession } from '../firebase/db.js';
 import {
-  affinityOk, attackBreakdown, breakdownText, canAfford, declareAttack, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
+  affinityOk, attackBreakdown, breakdownText, canAfford, canDetonate, declareAttack, detonateLatent, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
   endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, pickOpponentCards, playCounter, resolvePendingDiscards, resolveWithoutCounter, revealLatent,
   setupReady, soulCostFor, soulIncome, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
@@ -11,6 +11,7 @@ import { ABILITY_ZONES, LATENT_ZONES, isCastCard, isLatentCard } from '../game/z
 import PlayerMat from '../components/PlayerMat.jsx';
 import PhaseTracker from '../components/game/PhaseTracker.jsx';
 import EventLog from '../components/game/EventLog.jsx';
+import PileViewer from '../components/game/PileViewer.jsx';
 import Hand from '../components/game/Hand.jsx';
 import CounterPrompt from '../components/game/CounterPrompt.jsx';
 import SetupPanel from '../components/game/SetupPanel.jsx';
@@ -237,6 +238,7 @@ export default function GameBoard() {
   };
   // A stunning attack lets the attacker pick which of the opponent's Ability slots to restrict.
   const [stunAsk, setStunAsk] = useState(null); // pending target while choosing a Stun slot
+  const [pile, setPile] = useState(null); // { kind: 'deck' | 'discard', uid } while viewing a pile
   const stuns = (card, target) =>
     card?.inflictStatus === 'stun' && (card.inflictOn !== 'direct' || target.kind === 'player');
   const onTarget = (target, stunZone) => {
@@ -354,6 +356,21 @@ export default function GameBoard() {
     if (targeting) {
       buttons.push(<button key="face" className="ui-btn primary" onClick={() => onTarget({ kind: 'player' })}>Strike {oppName} directly</button>);
     }
+    // Revealed Latent cards with a STRIKE! Detonate (e.g. "Nail")
+    LATENT_ZONES.filter((z) => canDetonate(myBoard[z])).forEach((z) => {
+      const c = myBoard[z];
+      buttons.push(
+        <button
+          key={`det-${z}`}
+          className="ui-btn"
+          onClick={() => {
+            if (window.confirm(`Detonate "${c.title}"? It is discarded and ${oppName} takes direct damage.`)) run(detonateLatent(sessionId, me, z));
+          }}
+        >
+          Detonate “{c.title}”
+        </button>,
+      );
+    });
     buttons.push(<button key="end" className="ui-btn" onClick={() => run(endPhase(sessionId, me))}>End Turn</button>);
   } else if (!myTurn) {
     hint = `${names[game.turn]}'s ${game.phase === 'strike' ? 'STRIKE!' : game.phase} phase…`;
@@ -364,6 +381,14 @@ export default function GameBoard() {
 
   return (
     <div className={`game-page ${turnClass}`}>
+      {pile && (
+        <PileViewer
+          kind={pile.kind}
+          owner={pile.uid === me ? 'Your' : `${names[pile.uid]}'s`}
+          cards={pile.kind === 'deck' ? hand.deck : game.discard[pile.uid] || []}
+          onClose={() => setPile(null)}
+        />
+      )}
       <aside className="arena-side left">
         <div className="arena-bar">
           <Link to="/" className="arena-btn">Leave</Link>
@@ -390,6 +415,8 @@ export default function GameBoard() {
             turnNo={game.turnNo}
             highlight={oppHighlight}
             onZoneClick={(zone) => onTarget({ kind: 'card', zone })}
+            viewablePiles={opp ? ['discard'] : []}
+            onPileClick={(kind) => setPile({ kind, uid: opp })}
           />
           <div className="board-divider" aria-hidden="true"><span /></div>
           <PlayerMat
@@ -407,6 +434,8 @@ export default function GameBoard() {
             turnNo={game.turnNo}
             highlight={myHighlight}
             onZoneClick={onMyZone}
+            viewablePiles={['deck', 'discard']}
+            onPileClick={(kind) => setPile({ kind, uid: me })}
           />
         </div>
 

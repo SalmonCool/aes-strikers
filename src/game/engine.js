@@ -482,6 +482,28 @@ export function revealLatent(sid, uid, zoneId) {
   }, { withHand: true });
 }
 
+// Detonate a revealed Latent card during your STRIKE! phase (e.g. "Nail"): discard it for direct damage
+// that can't be boosted or negated. Discarding it also sets off its "when discarded" effect.
+export const canDetonate = (card) => Boolean(card && !card.faceDown && effectOf(card).detonate);
+export function detonateLatent(sid, uid, zoneId) {
+  return act(sid, uid, (ctx) => {
+    const { game } = ctx;
+    if (game.phase !== 'strike' || game.turn !== uid || game.attack) fail('Detonate during your STRIKE! phase.');
+    if (game.pendingPick?.by === uid) fail('Pick the card to discard first.');
+    const card = game.board[uid]?.[zoneId];
+    if (!canDetonate(card)) fail('That card can\'t be detonated.');
+    const opp = opponentOf(game, uid);
+    if (!opp) fail('There is no opponent to strike.');
+    const dmg = effectOf(card).detonate.direct;
+    delete game.board[uid][zoneId];
+    delete ctx.hand.latent[zoneId];
+    ctx.log(`${ctx.name(uid)} detonates "${card.title}"!`, 'attack');
+    damagePlayer(ctx, opp, dmg, `"${card.title}" detonation (can't be boosted or negated)`);
+    removeFromPlay(ctx, uid, card); // discarded: "Nail" also strikes for its discard damage
+    checkDefeat(ctx);
+  }, { withHand: true });
+}
+
 // ---------- Turn flow ----------
 function endTurnEffects(ctx, uid) {
   const s = ensureStatus(ctx.game, uid);
@@ -693,10 +715,20 @@ export function playCounter(sid, uid, source) {
   return act(sid, uid, (ctx) => {
     const a = ctx.game.attack;
     if (!a || a.status !== 'countering' || a.defender !== uid) fail('There is no COUNTER! to play.');
-    const { card, fromLatent } = takeSource(ctx, source, ['Attack', 'Defend'], 'COUNTER!');
+    const taken = takeSource(ctx, source, ['Attack', 'Defend'], 'COUNTER!');
+    const { card } = taken;
+    let { fromLatent } = taken;
+    // Detonating a Latent Defend card (e.g. "Flatside Nail"): it leaves play now, defends with +value, then is discarded
+    const detonate = fromLatent ? effectOf(card).detonateCounter || 0 : 0;
+    if (detonate) {
+      delete ctx.game.board[uid][fromLatent];
+      delete ctx.hand.latent[fromLatent];
+      fromLatent = null; // so it goes to the discard pile after the attack resolves
+      ctx.log(`${ctx.name(uid)} detonates "${card.title}" — it defends with ${detonate} extra and is discarded after use.`, 'counter');
+    }
     // Face-up "Flatside Nail": Defend cards block 40 more for each one
-    const boost = card.cardType === 'Defend' ? latentPassiveTotal(ctx.game, uid, 'defend-boost') : 0;
-    if (boost) ctx.log(`Face-up Latent cards boost "${card.title}" by ${boost}.`, 'counter');
+    const boost = (card.cardType === 'Defend' ? latentPassiveTotal(ctx.game, uid, 'defend-boost') : 0) + detonate;
+    if (boost - detonate) ctx.log(`Face-up Latent cards boost "${card.title}" by ${boost - detonate}.`, 'counter');
     // Attack cards struck back with keep their damage bonuses (e.g. Springboard's "Nail" bonus)
     const bd = card.cardType === 'Attack' ? attackBreakdown(ctx.game, uid, card) : null;
     if (bd?.parts.length) ctx.log(`"${card.title}" damage: ${breakdownText(bd)}.`, 'counter');
@@ -724,11 +756,11 @@ export function resolveWithoutCounter(sid, uid, attackId, reason) {
 // Effects that the engine applies automatically, keyed by card title (built-in sets).
 // Generic effects for any card come from its fields: inflictStatus / inflictStacks / inflictOn.
 const EFFECTS = {
-  // Shield: once per turn, direct damage triggers a roll — even: reduce by 80, odd: nullify it.
-  Instinct: { shieldRoll: { even: 80 } },
+  // Shield: once per turn, direct damage triggers a roll — even: reduce by 20, odd: nullify it.
+  Instinct: { shieldRoll: { even: 20 } },
   // Defend: block 30, then roll — odd: negate any remaining damage.
   'Brace For Impact!': { counterRoll: 'odd-negates' },
-  // Defend: block 40; if "Instinct" is in play it gains Instinct's roll (even: −80, odd: nullify).
+  // Defend: block 40; if "Instinct" is in play it gains Instinct's roll (even: −20, odd: nullify).
   Reflex: { counterRoll: 'instinct-if-in-play' },
   // Ability (Equip): discard all your "Nail" cards in play; for each, opponent takes 40 damage and 1 Purge,
   // and this card's damage increases by 20.
@@ -743,9 +775,11 @@ const EFFECTS = {
   // Attack (Latent): Attack cards cost 1 less SOUL for each face-up "Nail".
   // When it's discarded from play (destroyed, replaced, or discarded by "Veil Piercer"), it deals 20 damage
   // straight to the opponent, skipping Shields, Body Armor and other damage reduction.
-  Nail: { latentPassive: 'attack-discount', amount: 1, onDiscardDirect: 20 },
+  // Detonate (STRIKE!): discard it to deal 40 direct damage that can't be boosted or negated.
+  Nail: { latentPassive: 'attack-discount', amount: 1, onDiscardDirect: 20, detonate: { direct: 40 } },
   // Defend (Latent): Defend cards played as a COUNTER! block 40 more for each face-up "Flatside Nail".
-  'Flatside Nail': { latentPassive: 'defend-boost', amount: 40 },
+  // Detonate (COUNTER!): used to defend, it blocks 40 more than its value and is discarded after use.
+  'Flatside Nail': { latentPassive: 'defend-boost', amount: 40, detonateCounter: 40 },
   // Attack: +20 damage for each face-up card with "Nail" in its name on the attacker's board.
   Springboard: { attackBonus: { per: 'nail', amount: 20 } },
   // Ability: whenever your attack does damage, search your deck for a "Nail" card and put it into your hand.
@@ -1107,8 +1141,9 @@ function applyCounterRoll(ctx, def, counterCard, net) {
   if (kind === 'instinct-if-in-play') {
     const shield = ctx.game.board[def]?.shield;
     if (!shield || shield.faceDown || shield.title !== 'Instinct') return net;
-    const r = rollDie(ctx, def, `"${counterCard.title}" (Instinct)`, (v) => (v % 2 === 0 ? 'Even — reduce damage by 80' : 'Odd — nullify all damage'));
-    const after = r % 2 === 0 ? Math.max(0, net - 80) : 0;
+    const cut = EFFECTS.Instinct.shieldRoll.even;
+    const r = rollDie(ctx, def, `"${counterCard.title}" (Instinct)`, (v) => (v % 2 === 0 ? `Even — reduce damage by ${cut}` : 'Odd — nullify all damage'));
+    const after = r % 2 === 0 ? Math.max(0, net - cut) : 0;
     ctx.log(`"${counterCard.title}" gains Instinct's roll: ${r} — damage ${net} → ${after}.`, 'dice');
     return after;
   }
@@ -1126,6 +1161,13 @@ function damageCard(ctx, owner, zone, amount, source = '') {
     delete ctx.game.board[owner][zone];
     ctx.log(`"${card.title}" is destroyed.`, 'damage');
     removeFromPlay(ctx, owner, card);
+    // Leftover damage carries over as direct damage, following the usual order: Shield → Body Armor → player.
+    // (The destroyed card is already off the board, so it isn't hit twice.)
+    const leftover = amount - before;
+    if (leftover > 0 && ctx.game.players[owner]) {
+      ctx.log(`${leftover} leftover damage carries over to ${ctx.name(owner)} — Shield, then Body Armor, then directly.`, 'damage');
+      applyDirectDamage(ctx, owner, leftover);
+    }
   }
 }
 

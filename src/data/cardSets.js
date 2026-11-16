@@ -71,7 +71,7 @@ const LINX_CARDS = [
   L(17, 'Permeable Paws', 'Weapon', 'Equip', 0, 50, 0,
     'When equipped allows the user to ignore the damage reduction effect of the opponents Armor Set.'),
   L(18, 'Instinct', 'Shield', 'Equip', 0, 80, 0,
-    'This effect can only be used once per turn. If damage is declared directly, roll a die. If even, reduce damage by 80. If odd, nullify all damage declared.'),
+    'This effect can only be used once per turn. If damage is declared directly, roll a die. If even, reduce damage by 20. If odd, nullify all damage declared.'),
   L(19, "Prowler's Cloak", 'Body Armor', '', 0, 100, 0,
     'Draw 1 additional card during your draw phase, reduce direct damage by 50.'),
   L(20, 'Brace For Impact!', 'Defend', 'Cast', 0, 50, 0,
