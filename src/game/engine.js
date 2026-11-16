@@ -566,6 +566,17 @@ export function drawForTurn(sid, uid) {
     if (game.phase !== 'draw' || game.turn !== uid) return false;
     const s = ensureStatus(game, uid);
     let n = DRAW_PER_TURN;
+    // Extra draws from face-up cards: your own (e.g. "Prowler's Cloak") and ones for everyone (e.g. "Tilled Earth")
+    Object.keys(game.players).forEach((owner) => {
+      const board = game.board[owner] || {};
+      PLAYABLE_ZONES.filter((z) => z !== 'incantation').forEach((z) => {
+        const c = board[z];
+        const fx = c && !c.faceDown ? effectOf(c) : {};
+        if (!fx.extraDraw || (fx.drawFor === 'owner' && owner !== uid)) return;
+        n += fx.extraDraw;
+        ctx.log(`"${c.title}" lets ${ctx.name(uid)} draw ${fx.extraDraw} extra card${fx.extraDraw === 1 ? '' : 's'}.`);
+      });
+    });
     // Awakened "AGILITY!": +1 draw per face-up "Nail" card (Freeze/Frostbite limits below still apply)
     if (incantationsWith(game, uid, 'draw-per-nail').length) {
       const nails = nailCardsInPlay(game, uid).length;
@@ -653,15 +664,7 @@ export function declareAttack(sid, uid, source, target, opts = {}) {
     const fx = effectOf(card);
     if (fx.onDeclare === 'lunge-search') {
       forceHandDiscard(ctx, uid, 1, card.title);
-      const i = ctx.hand.deck.findIndex((c) => c.title === fx.search);
-      if (i >= 0) {
-        const [found] = ctx.hand.deck.splice(i, 1);
-        ctx.hand.hand.push(found);
-        ctx.hand.deck = shuffle(ctx.hand.deck);
-        ctx.log(`${ctx.name(uid)} searches their deck and adds "${found.title}" to their hand.`);
-      } else {
-        ctx.log(`${ctx.name(uid)} searches their deck but finds no "${fx.search}".`);
-      }
+      searchDeck(ctx, uid, { title: fx.search }, card.title);
     }
 
     if (card.inflictStatus) {
@@ -745,8 +748,20 @@ const EFFECTS = {
   'Flatside Nail': { latentPassive: 'defend-boost', amount: 40 },
   // Attack: +20 damage for each face-up card with "Nail" in its name on the attacker's board.
   Springboard: { attackBonus: { per: 'nail', amount: 20 } },
-  // Attack: when it lands on a stunned opponent, they discard a random card from their hand.
-  'Churning Constriction': { onHitStunnedDiscard: 1 },
+  // Ability: whenever your attack does damage, search your deck for a "Nail" card and put it into your hand.
+  'Just a Touch': { onDamageSearch: 'nail' },
+  // Body Armor: draw 1 more card in your draw phase.
+  "Prowler's Cloak": { extraDraw: 1, drawFor: 'owner' },
+  // Spatial: each player draws 1 more card in their draw phase.
+  'Tilled Earth': { extraDraw: 1, drawFor: 'everyone' },
+  // Attack: against a stunned opponent, they discard a card from their hand and all their equip cards take 10.
+  'Churning Constriction': { onHitStunnedDiscard: 1, stunnedEquipHit: 10 },
+  // Attack: if the opponent declares COUNTER!, 30 extra damage goes directly to them (ignores the COUNTER!).
+  Strikethrough: { onCounteredDirect: 30 },
+  // Attack: also deals 30 to the opponent's Body Armor (40 if "Chain of Command-Inty" is in play).
+  'Crashing Mandibles': { armorHit: { amount: 30, bonus: 10, bonusWith: 'Chain of Command-Inty' } },
+  // Defend: if the attack exceeds what this blocks, 20 damage to each of the attacker's equip cards.
+  Refraction: { overflowEquipHit: 20 },
   // Attack: on declaring, discard a random card from your hand and search your deck for "Churning Constriction".
   'Reckless Lunge': { onDeclare: 'lunge-search', search: 'Churning Constriction' },
   // Defend: if the attack is bigger than what it blocks, you take 30 instead and discard a random card.
@@ -809,13 +824,49 @@ function discardRandomFromHand(ctx, n, source) {
     ctx.log(`"${source}" makes ${ctx.name(uid)} discard "${c.title}" from their hand.`, 'damage');
   }
 }
-// Carries out discards queued against uid while the opponent was acting (run by uid's own client).
+// Deck searches. what: { title } (exact name) or { nail: true } (any card with "Nail" in its name).
+const matchesSearch = (c, what) => (what.nail ? isNailCard(c) : c.title === what.title);
+const searchLabel = (what) => (what.nail ? 'a "Nail" card' : `"${what.title}"`);
+
+// uid searches their deck for a matching card, puts it into their hand and shuffles the deck.
+// Decks are private, so if uid isn't the one acting, the search is queued and uid's client carries it out.
+function searchDeck(ctx, uid, what, source) {
+  if (ctx.uid !== uid || !ctx.hand) {
+    const p = ctx.game.players[uid];
+    p.pendingSearches = [...(p.pendingSearches || []), { ...what, source }];
+    return;
+  }
+  const matches = ctx.hand.deck.filter((c) => matchesSearch(c, what));
+  if (!matches.length) {
+    ctx.log(`"${source}": ${ctx.name(uid)} searches their deck but finds no ${searchLabel(what)}.`);
+    return;
+  }
+  const found = matches[Math.floor(Math.random() * matches.length)];
+  ctx.hand.deck = shuffle(ctx.hand.deck.filter((c) => c !== found));
+  ctx.hand.hand.push(found);
+  ctx.log(`"${source}": ${ctx.name(uid)} searches their deck and adds "${found.title}" to their hand.`);
+}
+
+// "Just a Touch": whenever uid's attack does damage, search for a "Nail" card (once per face-up copy).
+function onAttackDamaged(ctx, uid) {
+  const board = ctx.game.board[uid] || {};
+  PLAYABLE_ZONES.filter((z) => z !== 'incantation').forEach((z) => {
+    const c = board[z];
+    if (c && !c.faceDown && effectOf(c).onDamageSearch === 'nail') searchDeck(ctx, uid, { nail: true }, c.title);
+  });
+}
+
+// Carries out discards and deck searches queued for uid while the opponent was acting (run by uid's own client).
 export function resolvePendingDiscards(sid, uid) {
   return act(sid, uid, (ctx) => {
     const p = ctx.game.players[uid];
     const n = p?.pendingDiscard || 0;
     const picks = p?.pendingDiscardPicks || [];
-    if (!n && !picks.length) return false;
+    const searches = p?.pendingSearches || [];
+    if (!n && !picks.length && !searches.length) return false;
+    delete p.pendingSearches;
+    searches.forEach(({ source, ...what }) => searchDeck(ctx, uid, what, source));
+    if (!n && !picks.length) return;
     const source = p.pendingDiscardSource || 'A card effect';
     p.pendingDiscard = 0;
     delete p.pendingDiscardPicks;
@@ -921,8 +972,10 @@ function fireStrikeLatents(ctx, uid) {
     c.usedTurn = game.turnNo;
     ctx.log(`"${c.title}" strikes ${ctx.name(opp)} for ${c.damage} damage!`, 'attack');
     const dmg = reduceIncoming(ctx, opp, c.damage);
-    if (dmg > 0) applyDirectDamage(ctx, opp, dmg);
-    else ctx.log(`${ctx.name(opp)} takes no damage.`, 'counter');
+    if (dmg > 0) {
+      applyDirectDamage(ctx, opp, dmg);
+      onAttackDamaged(ctx, uid);
+    } else ctx.log(`${ctx.name(opp)} takes no damage.`, 'counter');
     checkDefeat(ctx);
   });
 }
@@ -1062,6 +1115,57 @@ function applyCounterRoll(ctx, def, counterCard, net) {
   return net;
 }
 
+// Damages the card in owner's zone straight to its health (no Shield / Body Armor reduction). Destroys it at 0.
+function damageCard(ctx, owner, zone, amount, source = '') {
+  const card = ctx.game.board[owner]?.[zone];
+  if (!card || Array.isArray(card) || card.faceDown || !(card.health > 0) || amount <= 0) return;
+  const before = card.health;
+  card.health = Math.max(0, card.health - amount);
+  ctx.log(`"${card.title}" takes ${amount} damage${source ? ` from "${source}"` : ''} (${before} → ${card.health}).`, 'damage');
+  if (card.health <= 0) {
+    delete ctx.game.board[owner][zone];
+    ctx.log(`"${card.title}" is destroyed.`, 'damage');
+    removeFromPlay(ctx, owner, card);
+  }
+}
+
+// Zones holding "equip" cards (Weapon, Shield, Body Armor, Abilities).
+const EQUIP_ZONES = ['weapon', 'shield', 'body-armor', ...ABILITY_ZONES];
+const damageAllEquips = (ctx, owner, amount, source) => {
+  const hit = EQUIP_ZONES.filter((z) => ctx.game.board[owner]?.[z]?.health > 0 && !ctx.game.board[owner][z].faceDown);
+  if (!hit.length) {
+    ctx.log(`"${source}" finds no equip cards to damage.`);
+    return;
+  }
+  ctx.log(`"${source}" deals ${amount} damage to each of ${ctx.name(owner)}'s equip cards.`, 'attack');
+  hit.forEach((z) => damageCard(ctx, owner, z, amount, source));
+};
+const hasFaceUp = (game, uid, title) =>
+  PLAYABLE_ZONES.some((z) => { const c = game.board[uid]?.[z]; return c && !Array.isArray(c) && !c.faceDown && c.title === title; });
+
+// Extra effects printed after an attack's or counter's main damage. They ignore the COUNTER! result.
+function runFollowUps(ctx, a, counter) {
+  const { game } = ctx;
+  const atk = a.by;
+  const def = a.defender;
+  const fx = effectOf(a.card);
+  // "Strikethrough": if the opponent declared COUNTER!, 30 more goes straight to them (can't be boosted)
+  if (fx.onCounteredDirect && (counter || a.status === 'countering') && game.players[def]) {
+    ctx.log(`"${a.card.title}" cuts through the COUNTER! — ${fx.onCounteredDirect} damage goes straight to ${ctx.name(def)}.`, 'attack');
+    applyDirectDamage(ctx, def, fx.onCounteredDirect);
+  }
+  // "Crashing Mandibles": extra damage to the opponent's Body Armor (+10 with "Chain of Command-Inty")
+  if (fx.armorHit && game.board[def]?.['body-armor']) {
+    const bonus = fx.armorHit.bonusWith && hasFaceUp(game, atk, fx.armorHit.bonusWith) ? fx.armorHit.bonus : 0;
+    damageCard(ctx, def, 'body-armor', fx.armorHit.amount + bonus, a.card.title);
+  }
+  // "Churning Constriction": against a stunned opponent, 10 damage to all of their equip cards
+  if (fx.stunnedEquipHit && statusOf(game, def).stun) damageAllEquips(ctx, def, fx.stunnedEquipHit, a.card.title);
+  // "Refraction" (Defend): if the attack was bigger than it blocks, 20 damage to all of the attacker's equip cards
+  const cfx = counter ? effectOf(counter.card) : {};
+  if (cfx.overflowEquipHit && a.damage > counter.value) damageAllEquips(ctx, atk, cfx.overflowEquipHit, counter.card.title);
+}
+
 function resolveAttack(ctx, counter) {
   const { game } = ctx;
   const a = game.attack;
@@ -1081,24 +1185,18 @@ function resolveAttack(ctx, counter) {
     }
   }
   if (net > 0) net = reduceIncoming(ctx, def, net);
+  if (net > 0) onAttackDamaged(ctx, a.by); // the attack got through and does damage
 
   if (net === 0) {
     ctx.log('The attack is fully countered!', 'counter');
   } else if (a.target.kind === 'player') {
     applyDirectDamage(ctx, def, net);
   } else {
-    const card = game.board[def][a.target.zone];
-    if (card && !Array.isArray(card)) {
-      const before = card.health;
-      card.health = Math.max(0, card.health - net);
-      ctx.log(`"${card.title}" takes ${net} damage (${before} → ${card.health}).`, 'damage');
-      if (card.health <= 0) {
-        delete game.board[def][a.target.zone];
-        ctx.log(`"${card.title}" is destroyed.`, 'damage');
-        removeFromPlay(ctx, def, card);
-      }
-    }
+    damageCard(ctx, def, a.target.zone, net);
   }
+
+  // Second-part effects: they go off even when the main damage is fully blocked
+  runFollowUps(ctx, a, counter);
 
   // Cards that grow each time they're attacked (e.g. Summon Inty), if still in play
   if (a.target.kind === 'card') {

@@ -133,7 +133,9 @@ export default function GameBoard() {
   useEffect(() => { if (needsDeal) run(dealOpeningHand(sessionId, me)); }, [needsDeal, sessionId, me, run]);
   useEffect(() => { if (needsDraw) run(drawForTurn(sessionId, me)); }, [needsDraw, sessionId, me, run]);
   // Discards an opponent's card forced on my (private) hand
-  const needsDiscard = (game?.players[me]?.pendingDiscard || 0) > 0 || (game?.players[me]?.pendingDiscardPicks?.length || 0) > 0;
+  // ...and deck searches (e.g. "Just a Touch") earned while the opponent was acting
+  const mine = game?.players[me];
+  const needsDiscard = (mine?.pendingDiscard || 0) > 0 || (mine?.pendingDiscardPicks?.length || 0) > 0 || (mine?.pendingSearches?.length || 0) > 0;
   useEffect(() => { if (needsDiscard) run(resolvePendingDiscards(sessionId, me)); }, [needsDiscard, sessionId, me, run]);
 
   // ----- Derived state -----
