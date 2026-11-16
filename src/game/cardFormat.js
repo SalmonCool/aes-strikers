@@ -181,7 +181,7 @@ GAME CONTEXT (to help you choose sensible values)
 - Shields absorb direct damage with their health; Body Armor reduces direct damage by its "block".
 - A player can only play cards matching their chosen Aether and Idol types.
 - SOUL is a resource players gain every turn (1 on their first turn, then 2, 3… up to 6 per turn; unspent SOUL is kept). Playing a card spends SOUL equal to its "soulCost". There are no SOUL cards.
-- Deck building: up to 4 copies per Attack, Defend and Ability card, 3 per Incantation, 2 per Spatial, and only 1 Body Armor per deck. Body Armor that leaves play is exhausted, not reshuffled.
+- Deck building: up to 6 copies per Attack card, 4 per Defend and Ability card, 3 per Incantation, 2 per Spatial, and only 1 Body Armor per deck. Body Armor that leaves play is exhausted, not reshuffled.
 - Players start with 400 health. Attacks are declared with "Attack" cards during the STRIKE! phase and deal their "damage".
 - The defender may COUNTER! with an "Attack" card; its damage is subtracted from the incoming damage.
 - Only cards with "health" above 0 can be targeted by attacks.

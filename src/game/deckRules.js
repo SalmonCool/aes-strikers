@@ -1,11 +1,11 @@
 // Deck-building rules.
 //
-// Per-card copy limits by type (e.g. up to 4 copies of "Strikethrough").
+// Per-card copy limits by type (e.g. up to 6 copies of "Strikethrough").
 // Some types are also capped across the whole deck (e.g. 2 Weapons total, any mix, duplicates allowed).
 // SOUL is not a deck card: players gain it every turn. Old decks may still list SOUL / Soul-type cards;
 // those entries are ignored everywhere below.
 export const COPY_LIMITS = {
-  Attack: 4,
+  Attack: 6,
   Defend: 4,
   Spatial: 2,
   Ability: 4,
