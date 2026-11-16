@@ -5,7 +5,7 @@ import {
   CARD_TYPES, createDeck, deleteCard, deleteDeck, renameDeck, setActiveDeck, setDeckCardCount,
 } from '../firebase/db.js';
 import useDecks, { MY_CARDS_SET_ID } from '../hooks/useDecks.js';
-import { CARD_SETS, starterDeckCards } from '../data/cardSets.js';
+import { STARTER_DECKS } from '../data/cardSets.js';
 import {
   COPY_LIMITS, BODY_ARMOR_PER_DECK, DECK_SIZE_LIMIT, TYPE_TOTAL_LIMITS, copyLimitFor, limitLabel, maxCopiesInDeck,
 } from '../game/deckRules.js';
@@ -78,14 +78,14 @@ function DeckList({ uid, decks, activeDeckId, onEdit, onError }) {
           <button className="ui-btn primary" disabled={busy || !name.trim()}>Create Empty Deck</button>
         </form>
         <div className="starter-row">
-          <span className="starter-label">Or start from a set:</span>
-          {CARD_SETS.map((s) => (
-            <button key={s.id} className="ui-btn small" disabled={busy} onClick={() => create(`${s.name} Starter`, starterDeckCards(s))}>
-              {s.name} Starter
+          <span className="starter-label">Or start from a starter deck:</span>
+          {STARTER_DECKS.map((d) => (
+            <button key={d.id} className="ui-btn small" disabled={busy} title={d.blurb} onClick={() => create(d.name, d.cards)}>
+              {d.name}
             </button>
           ))}
         </div>
-        <p className="field-help">Starter decks contain one copy of every card in the set. Adjust copies in the builder. SOUL isn't a deck card: you gain it every turn.</p>
+        <p className="field-help">Each set has two 30-card starter decks with different play styles (hover one to see its plan). Adjust copies in the builder. SOUL isn't a deck card: you gain it every turn.</p>
       </section>
 
       <section className="panel">
@@ -143,6 +143,7 @@ function DeckList({ uid, decks, activeDeckId, onEdit, onError }) {
                     {active && <span className="badge active">Active for play</span>}
                   </div>
                 </div>
+                {deck.blurb && <p className="deck-blurb">{deck.blurb}</p>}
                 <DeckStats deck={deck} />
                 <div className="deck-tile-actions">
                   <button className="ui-btn primary small" onClick={() => onEdit(deck.id)}>View Deck</button>

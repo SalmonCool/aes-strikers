@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AETHER_TYPES, IDOL_TYPES, createDeck, setActiveDeck } from '../../firebase/db.js';
-import { CARD_SETS, starterDeckCards } from '../../data/cardSets.js';
+import { STARTER_DECKS } from '../../data/cardSets.js';
 import useDecks from '../../hooks/useDecks.js';
 
 // Most common value of a field among non-SOUL cards (used to pre-select the deck's tokens).
@@ -36,10 +36,10 @@ export default function SetupPanel({ uid, onReady }) {
     }
   };
 
-  const makeStarter = async (set) => {
+  const makeStarter = async (starter) => {
     setBusy(true);
     try {
-      const id = await createDeck(uid, `${set.name} Starter`, starterDeckCards(set));
+      const id = await createDeck(uid, starter.name, starter.cards);
       await setActiveDeck(uid, id);
     } finally {
       setBusy(false);
@@ -56,8 +56,8 @@ export default function SetupPanel({ uid, onReady }) {
           <>
             <p className="setup-hint">You don’t have a deck yet. Grab a starter deck to play now, or build one in the Deck Manager.</p>
             <div className="starter-row">
-              {CARD_SETS.map((s) => (
-                <button key={s.id} className="ui-btn primary" disabled={busy} onClick={() => makeStarter(s)}>{s.name} Starter</button>
+              {STARTER_DECKS.map((d) => (
+                <button key={d.id} className="ui-btn primary" disabled={busy} title={d.blurb} onClick={() => makeStarter(d)}>{d.name}</button>
               ))}
               <Link to="/deck" className="ui-btn">Deck Manager</Link>
             </div>

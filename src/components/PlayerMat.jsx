@@ -27,7 +27,7 @@ const CardSlot = ({ card, className = '' }) => {
 //   highlight:    Map zoneId -> 'place' | 'target' | 'reveal' | 'use' | 'selected'
 export default function PlayerMat({
   side, owner, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [], exhausted = [],
-  stunZone, clashCard, turnNo, highlight, onZoneClick, viewablePiles = [], onPileClick,
+  clashCard, turnNo, highlight, onZoneClick, viewablePiles = [], onPileClick,
 }) {
   const [hover, setHover] = useState(null); // { card, rect }
 
@@ -114,7 +114,6 @@ export default function PlayerMat({
             title={viewable ? `Click to view ${z.label.toLowerCase()}` : undefined}
           >
             {content}
-            {stunZone === z.id && <span className="zone-stunned">Stunned</span>}
           </div>
         );
       })}

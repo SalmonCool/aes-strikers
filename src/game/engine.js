@@ -6,7 +6,7 @@
 //   players: { [uid]: { name, health, ready, dealt, deckCount, handCount, soul, turnsTaken,
 //                       aetherType, idolType, incantationTurn, status } }
 //     soul: banked SOUL. Each of the player's turns adds min(turnsTaken, SOUL_INCOME_CAP); unspent SOUL carries over.
-//     status: { burn 0-3, purge 0-3, freeze 0-2, frostbite 0-1, stun: null | { zone, by } }
+//     status: { burn 0-3, purge 0-3, freeze 0-2, frostbite 0-1, stun: null | { by } }
 //   board:   { [uid]: { [zoneId]: card | { faceDown: true } , incantation: card[] } }
 //   discard: { [uid]: card[] }
 //   exhausted: { [uid]: card[] }   (Body Armor that left play: never reshuffled into the deck)
@@ -47,7 +47,7 @@ export const STATUSES = [
   { id: 'frostbite', label: 'Frostbite', max: 1,
     desc: 'Only applicable at max Freeze. Cannot draw during the Draw phase. Cleansed at the end of their turn.' },
   { id: 'stun', label: 'Stun', max: 1,
-    desc: 'The stunning player picks one Ability slot; it is restricted until the end of the affected player’s turn.' },
+    desc: 'Max 1 stack. At the start of their turn the stunned player rolls a die. Even: the player who stunned them picks one of their hand cards at random to discard. Wears off at the end of that turn.' },
 ];
 const statusDef = (id) => STATUSES.find((s) => s.id === id);
 
@@ -125,13 +125,12 @@ const REPLACEABLE_ZONES = ['spatial', ...LATENT_ZONES, ...ABILITY_ZONES];
 
 // Zones this card may legally be placed into right now (empty, or replaceable).
 export function validZonesFor(game, uid, card) {
-  if (isSoulCard(card)) return [];
+  if (isSoulCard(card) || chainLock(game, uid, card)) return [];
   const board = game.board[uid] || {};
   const player = game.players[uid];
-  const stunned = player?.status?.stun?.zone;
   const zones = game.phase === 'start' ? ['body-armor'] : PLAYABLE_ZONES;
   return zones.filter((z) => {
-    if (!zoneAccepts(z, card) || z === stunned) return false;
+    if (!zoneAccepts(z, card)) return false;
     if (z === 'incantation') {
       return (board.incantation || []).length < MAX_INCANTATIONS && player.incantationTurn !== game.turnNo;
     }
@@ -189,7 +188,7 @@ const toPlayable = (c) => ({
 
 // Reset in-play state when a card returns to the deck from the discard pile.
 const freshCopy = (c) => {
-  const { revealed, usedTurn, ...rest } = c; // eslint-disable-line no-unused-vars
+  const { revealed, usedTurn, turnsActive, ...rest } = c; // eslint-disable-line no-unused-vars
   return { ...rest, health: c.baseHealth ?? c.health, damage: c.baseDamage ?? c.damage, block: c.baseBlock ?? c.block };
 };
 
@@ -313,7 +312,24 @@ function drawCards(ctx, n) {
     hand.hand.push(hand.deck.shift());
     drawn++;
   }
+  if (drawn > 0) onOpponentDrew(ctx, uid);
   return drawn;
+}
+
+// "Start! Hunt!": once per turn, when uid's opponent draws, uid draws one card too.
+// uid's deck is private, so the draw is queued and their own client carries it out.
+function onOpponentDrew(ctx, drawer) {
+  const { game } = ctx;
+  if (game.phase === 'setup' || game.phase === 'start') return; // not for opening hands
+  const hunter = opponentOf(game, drawer);
+  if (!hunter) return;
+  faceUpWith(game, hunter, 'drawOnOpponentDraw').forEach((c) => {
+    if (c.usedTurn === game.turnNo) return;
+    c.usedTurn = game.turnNo;
+    const p = game.players[hunter];
+    p.pendingDraws = (p.pendingDraws || 0) + effectOf(c).drawOnOpponentDraw;
+    ctx.log(`"${c.title}": ${ctx.name(drawer)} drew, so ${ctx.name(hunter)} draws a card too.`);
+  });
 }
 
 function damagePlayer(ctx, uid, amount, source) {
@@ -410,14 +426,16 @@ export function placeCard(sid, uid, iid, zoneId) {
       if (game.turn !== uid) fail("It's not your turn.");
       if (game.attack) fail('Resolve the current attack first.');
       if (game.pendingPick?.by === uid) fail('Pick the card to discard first.');
+      if (game.pendingPick?.target === uid) fail('Wait for your opponent to pick the card you discard.');
     } else {
       fail('Cards can only be equipped during the Equip phase.');
     }
 
     requireAffinity(ctx, card);
+    const lock = chainLock(game, uid, card);
+    if (lock) fail(`"${card.title}" can't be played while "${lock.title}" is in play.`);
     if (!validZonesFor(game, uid, card).includes(zoneId)) {
       if (zoneId === 'incantation' && game.players[uid].incantationTurn === game.turnNo) fail('Only 1 Incantation can be played per turn.');
-      if (game.players[uid].status?.stun?.zone === zoneId) fail(`${zoneLabel(zoneId)} is restricted by Stun.`);
       fail(`"${card.title}" can't be placed in ${zoneLabel(zoneId)}.`);
     }
 
@@ -522,6 +540,39 @@ function endTurnEffects(ctx, uid) {
   ctx.game.clash = null;
 }
 
+// "Regenerating Carapace": counts uid's turns while in play; after enough, restores their Body Armor (Armor Set)
+// — bringing back an exhausted one at full health, or fully repairing one still in play — then is discarded.
+function regenerateArmor(ctx, uid) {
+  const { game } = ctx;
+  const board = game.board[uid] || {};
+  PLAYABLE_ZONES.filter((z) => z !== 'incantation').forEach((z) => {
+    const c = board[z];
+    const after = c && !c.faceDown ? effectOf(c).regenArmorAfter : 0;
+    if (!after) return;
+    c.turnsActive = (c.turnsActive || 0) + 1;
+    if (c.turnsActive < after) {
+      ctx.log(`"${c.title}": ${after - c.turnsActive} more turn${after - c.turnsActive === 1 ? '' : 's'} until ${ctx.name(uid)}'s Armor Set regenerates.`);
+      return;
+    }
+    const worn = board['body-armor'];
+    const spent = (game.exhausted?.[uid] || []).filter((x) => x.cardType === 'Body Armor');
+    if (worn) {
+      worn.health = worn.baseHealth ?? worn.health;
+      ctx.log(`"${c.title}" fully restores "${worn.title}" (${worn.health} health).`, 'counter');
+    } else if (spent.length) {
+      const back = spent.at(-1);
+      game.exhausted[uid] = game.exhausted[uid].filter((x) => x !== back);
+      board['body-armor'] = { ...freshCopy(back), iid: back.iid };
+      ctx.log(`"${c.title}" returns "${back.title}" to an active state!`, 'counter');
+    } else {
+      ctx.log(`"${c.title}" has no Armor Set to restore.`);
+    }
+    delete board[z];
+    removeFromPlay(ctx, uid, c);
+    ctx.log(`"${c.title}" is discarded.`);
+  });
+}
+
 function startTurnEffects(ctx, uid) {
   // Face-up Latent cards that grow each turn they stay active (e.g. Summon Illy!)
   autoLatents(ctx, uid, 'reduce-incoming').forEach((c) => {
@@ -530,7 +581,21 @@ function startTurnEffects(ctx, uid) {
     c.block = (c.block || 0) + grow;
     ctx.log(`"${c.title}" grows — it now reduces incoming damage by ${c.block}.`, 'counter');
   });
+  regenerateArmor(ctx, uid);
   const s = ensureStatus(ctx.game, uid);
+  // Stun: roll — on an even roll, the player who stunned them blind-picks a hand card to discard.
+  // Each face-up "Chain of Command: Gravity" (either side) makes them lose one more.
+  if (s.stun) {
+    const r = rollDie(ctx, uid, 'Stun', (v) => (v % 2 === 0 ? 'Even — lose a card' : 'Odd — no card lost'));
+    if (r % 2 === 0) {
+      const gravity = Object.keys(ctx.game.players).reduce((n, u) => n + faceUpWith(ctx.game, u, 'stunExtraDiscard').length, 0);
+      ctx.log(`${ctx.name(uid)} rolls ${r} (even) — Stun costs them ${1 + gravity} card${gravity ? 's' : ''}${gravity ? ' (Gravity)' : ''}.`, 'dice');
+      const chooser = s.stun.by && s.stun.by !== uid ? s.stun.by : opponentOf(ctx.game, uid);
+      forceHandDiscard(ctx, uid, 1 + gravity, 'Stun', { chooser });
+    } else {
+      ctx.log(`${ctx.name(uid)} rolls ${r} (odd) — Stun costs them nothing this turn.`, 'dice');
+    }
+  }
   if (s.burn > 0) damagePlayer(ctx, uid, s.burn * STATUS_DAMAGE_PER_STACK, `Burn ×${s.burn}`);
   if (s.purge > 0) damagePlayer(ctx, uid, s.purge * STATUS_DAMAGE_PER_STACK, `Purge ×${s.purge}`);
   if (s.freeze > 0) {
@@ -550,6 +615,7 @@ export function endPhase(sid, uid) {
     if (game.turn !== uid) fail("It's not your turn.");
     if (game.attack) fail('Resolve the current attack first.');
     if (game.pendingPick?.by === uid) fail('Pick the card to discard first.');
+    if (game.pendingPick?.target === uid) fail('Wait for your opponent to pick the card you discard.');
 
     if (game.phase === 'equip') {
       game.phase = 'strike';
@@ -651,8 +717,7 @@ const targetLabel = (ctx, defender, target) =>
     : `${ctx.name(defender)}'s "${ctx.game.board[defender][target.zone]?.title}"`;
 
 // target: { kind: 'player' } | { kind: 'card', zone }
-// opts.stunZone: Ability slot the attacker chooses to restrict when the card stuns.
-export function declareAttack(sid, uid, source, target, opts = {}) {
+export function declareAttack(sid, uid, source, target) {
   return act(sid, uid, (ctx) => {
     const { game } = ctx;
     if (game.phase !== 'strike' || game.turn !== uid) fail('Attacks can only be declared during your STRIKE! phase.');
@@ -664,8 +729,19 @@ export function declareAttack(sid, uid, source, target, opts = {}) {
       if (!t || t.faceDown || Array.isArray(t) || !(t.health > 0)) fail('Only face-up cards with health can be targeted.');
     }
 
+    const paid = source.kind === 'hand' ? soulCostFor(game, uid, findInHand(ctx, source.iid)) : 0;
     const { card, fromLatent } = takeSource(ctx, source, ['Attack'], 'attack');
-    const breakdown = attackBreakdown(game, uid, card);
+    const breakdown = attackBreakdown(game, uid, card, target);
+    // "Instant Reposition": once per STRIKE!, an attack that cost SOUL refunds 1
+    if (paid > 0) {
+      faceUpWith(game, uid, 'refundOnPaidAttack').forEach((c) => {
+        if (c.usedTurn === game.turnNo) return;
+        c.usedTurn = game.turnNo;
+        const n = effectOf(c).refundOnPaidAttack;
+        game.players[uid].soul = (game.players[uid].soul || 0) + n;
+        ctx.log(`"${c.title}" refunds ${n} SOUL to ${ctx.name(uid)}.`);
+      });
+    }
     game.attack = {
       id: crypto.randomUUID(),
       by: uid,
@@ -690,7 +766,7 @@ export function declareAttack(sid, uid, source, target, opts = {}) {
     }
 
     if (card.inflictStatus) {
-      const inflict = { status: card.inflictStatus, stacks: card.inflictStacks || 1, on: card.inflictOn || 'hit', zone: opts.stunZone || null };
+      const inflict = { status: card.inflictStatus, stacks: card.inflictStacks || 1, on: card.inflictOn || 'hit', zone: null };
       if (inflict.on === 'direct') {
         // "If a direct attack is declared": applies immediately, regardless of COUNTER!
         if (target.kind === 'player') inflictStatus(ctx, uid, defender, inflict.status, inflict.stacks, inflict.zone, card.title);
@@ -711,7 +787,11 @@ export function declareCounter(sid, uid, attackId) {
   });
 }
 
-export function playCounter(sid, uid, source) {
+// Defend cards with an optional HP sacrifice for more block (e.g. "Translucence").
+export const sacrificeOption = (card) => (card?.cardType === 'Defend' ? effectOf(card).sacrifice || null : null);
+
+// opts.sacrifice: pay the card's HP sacrifice for extra block.
+export function playCounter(sid, uid, source, opts = {}) {
   return act(sid, uid, (ctx) => {
     const a = ctx.game.attack;
     if (!a || a.status !== 'countering' || a.defender !== uid) fail('There is no COUNTER! to play.');
@@ -727,8 +807,23 @@ export function playCounter(sid, uid, source) {
       ctx.log(`${ctx.name(uid)} detonates "${card.title}" — it defends with ${detonate} extra and is discarded after use.`, 'counter');
     }
     // Face-up "Flatside Nail": Defend cards block 40 more for each one
-    const boost = (card.cardType === 'Defend' ? latentPassiveTotal(ctx.game, uid, 'defend-boost') : 0) + detonate;
+    let boost = (card.cardType === 'Defend' ? latentPassiveTotal(ctx.game, uid, 'defend-boost') : 0) + detonate;
     if (boost - detonate) ctx.log(`Face-up Latent cards boost "${card.title}" by ${boost - detonate}.`, 'counter');
+    // "Fly! Illy!": adds your face-up Summon Illy!'s block
+    const summonTitle = effectOf(card).addSummon;
+    const summon = summonTitle && faceUpCards(ctx.game, uid).find((c) => c.title === summonTitle);
+    if (summon) {
+      const add = summonPower(ctx.game, uid, summon);
+      boost += add;
+      ctx.log(`"${summon.title}" adds ${add} to "${card.title}".`, 'counter');
+    }
+    // "Translucence": sacrifice HP for extra block
+    const sac = opts.sacrifice ? sacrificeOption(card) : null;
+    if (sac) {
+      damagePlayer(ctx, uid, sac.hp, `"${card.title}" (sacrificed)`);
+      boost += sac.block;
+      ctx.log(`${ctx.name(uid)} sacrifices ${sac.hp} HP — "${card.title}" blocks ${sac.block} more.`, 'counter');
+    }
     // Attack cards struck back with keep their damage bonuses (e.g. Springboard's "Nail" bonus)
     const bd = card.cardType === 'Attack' ? attackBreakdown(ctx.game, uid, card) : null;
     if (bd?.parts.length) ctx.log(`"${card.title}" damage: ${breakdownText(bd)}.`, 'counter');
@@ -784,6 +879,40 @@ const EFFECTS = {
   Springboard: { attackBonus: { per: 'nail', amount: 20 } },
   // Ability: whenever your attack does damage, search your deck for a "Nail" card and put it into your hand.
   'Just a Touch': { onDamageSearch: 'nail' },
+  // Ability: while you have a face-up "Nail" card, your direct damage (attacks on the player) is +20.
+  Skewer: { directBonus: 20 },
+  // Ability: once per STRIKE!, playing an attack that costs SOUL refunds 1 SOUL.
+  'Instant Reposition': { refundOnPaidAttack: 1 },
+  // Ability: once per turn, when your opponent draws a card, you draw one.
+  'Start! Hunt!': { drawOnOpponentDraw: 1 },
+  // Spatial: when your attack is fully blocked or countered, refund 1 SOUL.
+  'Illusionary Wind': { refundOnBlocked: 1 },
+  // Spatial: your damage is +10 while your opponent has Purge.
+  Purrgatory: { purgeBonus: 10 },
+  // Weapon: your direct damage ignores the opponent's Body Armor reduction.
+  'Permeable Paws': { ignoreArmor: true },
+  // Defend: optionally sacrifice 10 HP to block 20 more.
+  Translucence: { sacrifice: { hp: 10, block: 20 } },
+
+  // Dremur
+  // Ability: after 3 of your turns in play, restores your Body Armor (Armor Set) and is discarded.
+  'Regenerating Carapace': { regenArmorAfter: 3 },
+  // Ability ("modes"): equipping it discards your "Summon Inty" (adding its damage to this card's reduction),
+  // and "Summon Inty" can't be played while it's in play. Reduces direct damage by its value (20+).
+  'Chain Of Command-Illy': { chain: { removes: 'Summon Inty', stat: 'block' }, directReduce: true },
+  // Ability ("modes"): equipping it discards your "Summon Illy!" (adding its block to this card's damage),
+  // and "Summon Illy!" can't be played while it's in play. All your damage is increased by its value (20+).
+  'Chain of Command-Inty': { chain: { removes: 'Summon Illy!', stat: 'damage' }, allDamageBonus: true },
+  // Ability: +20 damage when attacking a card, +10 more for each of your face-up cards with "Inty" in the name.
+  'Rending Carapace': { cardTargetBonus: { amount: 20, perInty: 10 } },
+  // Spatial: a stunned player who rolls even loses one extra card (applies to everyone).
+  'Chain of Command: Gravity': { stunExtraDiscard: 1 },
+  // Weapon: Summon Inty's damage and Summon Illy!'s block are +40.
+  'Wand Of Command': { summonBoost: 40 },
+  // Defend: adds your face-up "Summon Illy!"'s block to this card.
+  'Fly! Illy!': { addSummon: 'Summon Illy!' },
+  // Body Armor: its reduction grows by the damage it has taken.
+  'Hidden Carapace': { blockGrowsWithDamage: true },
   // Body Armor: draw 1 more card in your draw phase.
   "Prowler's Cloak": { extraDraw: 1, drawFor: 'owner' },
   // Spatial: each player draws 1 more card in their draw phase.
@@ -897,9 +1026,15 @@ export function resolvePendingDiscards(sid, uid) {
     const n = p?.pendingDiscard || 0;
     const picks = p?.pendingDiscardPicks || [];
     const searches = p?.pendingSearches || [];
-    if (!n && !picks.length && !searches.length) return false;
+    const draws = p?.pendingDraws || 0;
+    if (!n && !picks.length && !searches.length && !draws) return false;
     delete p.pendingSearches;
     searches.forEach(({ source, ...what }) => searchDeck(ctx, uid, what, source));
+    if (draws) {
+      p.pendingDraws = 0;
+      const got = drawCards(ctx, draws);
+      ctx.log(got ? `${ctx.name(uid)} drew ${got} card${got === 1 ? '' : 's'}.` : `${ctx.name(uid)} has no cards left to draw.`);
+    }
     if (!n && !picks.length) return;
     const source = p.pendingDiscardSource || 'A card effect';
     p.pendingDiscard = 0;
@@ -948,9 +1083,46 @@ export function nailCardsInPlay(game, uid) {
   return PLAYABLE_ZONES.filter((z) => z !== 'incantation').map((z) => board[z]).filter((c) => c && !c.faceDown && isNailCard(c));
 }
 
+// Face-up cards on uid's board (Incantations excluded), and those with a given effect.
+const faceUpCards = (game, uid) => {
+  const b = game?.board?.[uid] || {};
+  return PLAYABLE_ZONES.filter((z) => z !== 'incantation').map((z) => b[z]).filter((c) => c && !c.faceDown);
+};
+const faceUpWith = (game, uid, key) => faceUpCards(game, uid).filter((c) => effectOf(c)[key]);
+
+// A summon's current power — Summon Inty's damage or Summon Illy!'s block — including "Wand Of Command".
+export function summonPower(game, uid, c) {
+  const base = c.cardType === 'Attack' ? c.damage || 0 : c.block || 0;
+  return base + faceUpWith(game, uid, 'summonBoost').reduce((s, w) => s + effectOf(w).summonBoost, 0);
+}
+
+// "Chain of Command" lock: the face-up card stopping uid from playing `card`, if any.
+export const chainLock = (game, uid, card) => faceUpCards(game, uid).find((c) => effectOf(c).chain?.removes === card?.title) || null;
+
+// Ongoing damage bonuses from uid's other cards, for damage aimed at `target` ({ kind: 'player' | 'card' }).
+function damageBonusParts(game, uid, target) {
+  const parts = [];
+  faceUpWith(game, uid, 'allDamageBonus').forEach((c) => c.damage > 0 && parts.push({ label: c.title, amount: c.damage }));
+  if (target?.kind === 'player' && nailCardsInPlay(game, uid).length) {
+    faceUpWith(game, uid, 'directBonus').forEach((c) => parts.push({ label: c.title, amount: effectOf(c).directBonus }));
+  }
+  if (target?.kind === 'card') {
+    const inty = faceUpCards(game, uid).filter((c) => /inty/i.test(c.title)).length;
+    faceUpWith(game, uid, 'cardTargetBonus').forEach((c) => {
+      const b = effectOf(c).cardTargetBonus;
+      parts.push({ label: inty ? `${c.title}, ${inty} "Inty"` : c.title, amount: b.amount + b.perInty * inty });
+    });
+  }
+  const opp = opponentOf(game, uid);
+  if (opp && statusOf(game, opp).purge > 0) {
+    faceUpWith(game, uid, 'purgeBonus').forEach((c) => parts.push({ label: `${c.title}, Purge`, amount: effectOf(c).purgeBonus }));
+  }
+  return parts;
+}
+
 // How an Attack card's damage adds up right now: { base, parts: [{ label, amount }], total }.
-// Used both to resolve the attack and to show players the math.
-export function attackBreakdown(game, uid, card) {
+// Used both to resolve the attack and to show players the math. target: { kind: 'player' | 'card' } or null.
+export function attackBreakdown(game, uid, card, target = null) {
   const base = Number(card?.damage) || 0;
   const parts = [];
   const bonus = effectOf(card).attackBonus;
@@ -958,6 +1130,7 @@ export function attackBreakdown(game, uid, card) {
     const n = nailCardsInPlay(game, uid).filter((c) => c !== card).length;
     if (n) parts.push({ label: `${n} "Nail" card${n === 1 ? '' : 's'} in play`, amount: bonus.amount * n });
   }
+  parts.push(...damageBonusParts(game, uid, target));
   incantationsWith(game, uid, 'attack-boost').forEach((c) => parts.push({ label: c.title, amount: effectOf(c).amount }));
   return { base, parts, total: parts.reduce((s, p) => s + p.amount, base) };
 }
@@ -988,8 +1161,9 @@ const autoLatents = (ctx, uid, kind) => {
 function reduceIncoming(ctx, def, amount) {
   let dmg = amount;
   autoLatents(ctx, def, 'reduce-incoming').forEach((c) => {
-    if (dmg <= 0 || !(c.block > 0)) return;
-    const reduced = Math.min(c.block, dmg);
+    const power = summonPower(ctx.game, def, c); // includes "Wand Of Command"
+    if (dmg <= 0 || !(power > 0)) return;
+    const reduced = Math.min(power, dmg);
     dmg -= reduced;
     ctx.log(`"${c.title}" reduces incoming damage by ${reduced}.`, 'counter');
   });
@@ -1004,8 +1178,12 @@ function fireStrikeLatents(ctx, uid) {
   autoLatents(ctx, uid, 'strike-damage').forEach((c) => {
     if (c.usedTurn === game.turnNo || game.phase === 'over') return;
     c.usedTurn = game.turnNo;
-    ctx.log(`"${c.title}" strikes ${ctx.name(opp)} for ${c.damage} damage!`, 'attack');
-    const dmg = reduceIncoming(ctx, opp, c.damage);
+    // Its power (incl. "Wand Of Command") plus your ongoing direct-damage bonuses
+    const bd = { base: summonPower(game, uid, c), parts: damageBonusParts(game, uid, { kind: 'player' }) };
+    const total = bd.parts.reduce((s, p) => s + p.amount, bd.base);
+    ctx.log(`"${c.title}" strikes ${ctx.name(opp)} for ${total} damage!`, 'attack');
+    if (bd.parts.length) ctx.log(`"${c.title}" damage: ${breakdownText({ ...bd, total })}.`, 'attack');
+    const dmg = reduceIncoming(ctx, opp, total);
     if (dmg > 0) {
       applyDirectDamage(ctx, opp, dmg);
       onAttackDamaged(ctx, uid);
@@ -1025,9 +1203,8 @@ function inflictStatus(ctx, by, target, statusId, stacks = 1, zone = null, sourc
       ctx.log(`${ctx.name(target)} is already stunned${from}.`, 'status');
       return;
     }
-    const slot = ABILITY_ZONES.includes(zone) ? zone : ABILITY_ZONES[0];
-    s.stun = { zone: slot, by };
-    ctx.log(`${ctx.name(target)} is stunned${from} — ${zoneLabel(slot)} is restricted until the end of their turn.`, 'status');
+    s.stun = { by };
+    ctx.log(`${ctx.name(target)} is stunned${from} — at the start of their turn they roll to see if they lose a card.`, 'status');
     return;
   }
   if (statusId === 'frostbite' && s.freeze < statusDef('freeze').max) {
@@ -1044,7 +1221,26 @@ function inflictStatus(ctx, by, target, statusId, stacks = 1, zone = null, sourc
   );
 }
 
+// "Chain of Command" (picking a side): equipping it discards your summon of the other side — face-up or
+// face-down — and adds that summon's value to this card.
+function runChainEquip(ctx, uid, card, chain) {
+  const board = ctx.game.board[uid];
+  LATENT_ZONES.forEach((z) => {
+    const slot = board[z];
+    const real = slot?.faceDown ? ctx.hand.latent[z] : slot;
+    if (!real || real.title !== chain.removes) return;
+    const value = real.cardType === 'Attack' ? real.damage || 0 : real.block || 0;
+    delete board[z];
+    delete ctx.hand.latent[z];
+    removeFromPlay(ctx, uid, real);
+    card[chain.stat] = (card[chain.stat] || 0) + value;
+    ctx.log(`"${card.title}" discards "${real.title}" and absorbs its ${value} — now ${card[chain.stat]}.`, 'phase');
+  });
+}
+
 function runEquipEffect(ctx, uid, card) {
+  const chain = effectOf(card).chain;
+  if (chain) return runChainEquip(ctx, uid, card, chain);
   if (effectOf(card).onEquip !== 'veil-piercer') return;
   const { game, hand } = ctx;
   const board = game.board[uid];
@@ -1103,9 +1299,15 @@ function applyDirectDamage(ctx, def, amount) {
   // Body Armor reduces direct damage by its block value and takes the damage it stopped,
   // so it wears down (and is exhausted at 0 health). Armor with no printed health just reduces.
   const armor = board['body-armor'];
-  if (dmg > 0 && armor && armor.block > 0) {
+  // "Hidden Carapace": its reduction grows by the damage it has already taken
+  const armorBlock = (a) => (a.block || 0) + (effectOf(a).blockGrowsWithDamage ? Math.max(0, (a.baseHealth ?? a.health) - a.health) : 0);
+  // "Permeable Paws": the attacker ignores Body Armor reduction
+  const paws = faceUpWith(ctx.game, opponentOf(ctx.game, def), 'ignoreArmor')[0];
+  if (dmg > 0 && armor && armorBlock(armor) > 0 && paws) {
+    ctx.log(`"${paws.title}" slips past "${armor.title}" — its reduction is ignored.`, 'attack');
+  } else if (dmg > 0 && armor && armorBlock(armor) > 0) {
     const takesHits = armor.health > 0;
-    const reduced = Math.min(armor.block, dmg, takesHits ? armor.health : Infinity);
+    const reduced = Math.min(armorBlock(armor), dmg, takesHits ? armor.health : Infinity);
     dmg -= reduced;
     if (takesHits) {
       armor.health -= reduced;
@@ -1119,6 +1321,14 @@ function applyDirectDamage(ctx, def, amount) {
       ctx.log(`"${armor.title}" reduces direct damage by ${reduced}.`, 'damage');
     }
   }
+
+  // Ability cards that reduce direct damage (e.g. "Chain Of Command-Illy")
+  faceUpWith(ctx.game, def, 'directReduce').forEach((c) => {
+    if (dmg <= 0 || !(c.block > 0)) return;
+    const reduced = Math.min(c.block, dmg);
+    dmg -= reduced;
+    ctx.log(`"${c.title}" reduces direct damage by ${reduced}.`, 'counter');
+  });
 
   if (dmg > 0) damagePlayer(ctx, def, dmg, 'the attack');
   else ctx.log(`${ctx.name(def)} takes no damage.`, 'counter');
@@ -1231,6 +1441,12 @@ function resolveAttack(ctx, counter) {
 
   if (net === 0) {
     ctx.log('The attack is fully countered!', 'counter');
+    // "Illusionary Wind": a fully blocked attack refunds its attacker 1 SOUL
+    faceUpWith(game, a.by, 'refundOnBlocked').forEach((c) => {
+      const n = effectOf(c).refundOnBlocked;
+      game.players[a.by].soul = (game.players[a.by].soul || 0) + n;
+      ctx.log(`"${c.title}" refunds ${n} SOUL to ${ctx.name(a.by)}.`);
+    });
   } else if (a.target.kind === 'player') {
     applyDirectDamage(ctx, def, net);
   } else {

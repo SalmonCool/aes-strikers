@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { setDeckCards, watchAllCards, watchDecks, watchProfile } from '../firebase/db.js';
-import { CARD_SETS, starterDeckCards } from '../data/cardSets.js';
+import { CARD_SETS, STARTER_DECKS } from '../data/cardSets.js';
 import { expandDeck, validateDeck } from '../game/deckRules.js';
 
 export const MY_CARDS_SET_ID = 'set-mine';
 
-// Read-only, ready-to-play example decks built from each built-in set.
-export const EXAMPLE_DECKS = CARD_SETS.map((s) => ({
-  id: `example-${s.id}`,
-  name: `${s.name} (Example)`,
+// Read-only, ready-to-play example decks: two per built-in set, each with its own play style.
+export const EXAMPLE_DECKS = STARTER_DECKS.map((d) => ({
+  id: d.id,
+  name: `${d.name} (Example)`,
+  blurb: d.blurb,
   builtIn: true,
-  cards: starterDeckCards(s),
+  cards: d.cards,
 }));
 
 // Everything the deck builder and arena setup need:

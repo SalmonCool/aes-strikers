@@ -1,5 +1,4 @@
 import { PHASES, STARTING_HEALTH, STATUSES, SOUL_INCOME_CAP, opponentOf, soulIncome } from '../../game/engine.js';
-import { zoneLabel } from '../../game/zones.js';
 import PlayerIcon from '../PlayerIcon.jsx';
 
 const SOUL_PIPS = 5; // minimum pips shown so the meter has a stable shape
@@ -18,7 +17,7 @@ function HealthBar({ player, uid, isMe, avatar }) {
   const st = { burn: 0, purge: 0, freeze: 0, frostbite: 0, stun: null, ...(player.status || {}) };
   const statuses = STATUSES.filter((d) => (d.id === 'stun' ? st.stun : st[d.id] > 0)).map((d) => ({
     ...d,
-    text: d.id === 'stun' ? `Stun · ${zoneLabel(st.stun.zone).replace('Ability ', '')}` : `${d.label} ×${st[d.id]}`,
+    text: d.id === 'stun' ? 'Stunned' : `${d.label} ×${st[d.id]}`,
   }));
   return (
     <div className={`pt-player ${isMe ? 'me' : 'opp'}`} data-player-plate={uid}>

@@ -3,11 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { avatarCropOf, avatarOf, joinSession, watchProfile, watchSession } from '../firebase/db.js';
 import {
-  affinityOk, attackBreakdown, breakdownText, canAfford, canDetonate, declareAttack, detonateLatent, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
+  affinityOk, attackBreakdown, breakdownText, canAfford, canDetonate, chainLock, sacrificeOption, declareAttack, detonateLatent, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
   endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, pickOpponentCards, playCounter, resolvePendingDiscards, resolveWithoutCounter, revealLatent,
   setupReady, soulCostFor, soulIncome, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
-import { ABILITY_ZONES, LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
+import { LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
 import PlayerMat from '../components/PlayerMat.jsx';
 import PhaseTracker from '../components/game/PhaseTracker.jsx';
 import EventLog from '../components/game/EventLog.jsx';
@@ -136,7 +136,7 @@ export default function GameBoard() {
   // Discards an opponent's card forced on my (private) hand
   // ...and deck searches (e.g. "Just a Touch") earned while the opponent was acting
   const mine = game?.players[me];
-  const needsDiscard = (mine?.pendingDiscard || 0) > 0 || (mine?.pendingDiscardPicks?.length || 0) > 0 || (mine?.pendingSearches?.length || 0) > 0;
+  const needsDiscard = (mine?.pendingDiscard || 0) > 0 || (mine?.pendingDiscardPicks?.length || 0) > 0 || (mine?.pendingSearches?.length || 0) > 0 || (mine?.pendingDraws || 0) > 0;
   useEffect(() => { if (needsDiscard) run(resolvePendingDiscards(sessionId, me)); }, [needsDiscard, sessionId, me, run]);
 
   // ----- Derived state -----
@@ -236,19 +236,10 @@ export default function GameBoard() {
     if (c?.faceDown && canReveal) run(revealLatent(sessionId, me, zone));
     else if (usableLatent(zone)) setSel(sel?.from === 'board' && sel.zone === zone ? null : { from: 'board', zone });
   };
-  // A stunning attack lets the attacker pick which of the opponent's Ability slots to restrict.
-  const [stunAsk, setStunAsk] = useState(null); // pending target while choosing a Stun slot
   const [pile, setPile] = useState(null); // { kind: 'deck' | 'discard', uid } while viewing a pile
-  const stuns = (card, target) =>
-    card?.inflictStatus === 'stun' && (card.inflictOn !== 'direct' || target.kind === 'player');
-  const onTarget = (target, stunZone) => {
-    if (!stunZone && stuns(selectedCard, target)) {
-      setStunAsk(target);
-      return;
-    }
-    run(declareAttack(sessionId, me, source, target, { stunZone }));
+  const onTarget = (target) => {
+    run(declareAttack(sessionId, me, source, target));
     setSel(null);
-    setStunAsk(null);
   };
 
   const onCounterTimeout = useCallback(
@@ -278,7 +269,9 @@ export default function GameBoard() {
   // Why a selected card can't be played (if that's the case)
   let selectionHint = '';
   if (selectedCard && sel.from === 'hand') {
-    if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" is ${selectedCard.aetherType}/${selectedCard.idolType} — it doesn't match your ${player.aetherType}/${player.idolType} tokens.`;
+    const lock = chainLock(game, me, selectedCard);
+    if (lock) selectionHint = `"${selectedCard.title}" can't be played while "${lock.title}" is in play.`;
+    else if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" is ${selectedCard.aetherType}/${selectedCard.idolType} — it doesn't match your ${player.aetherType}/${player.idolType} tokens.`;
     else if (!canAfford(game, me, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${soulCostFor(game, me, selectedCard)} SOUL. You have ${player?.soul || 0}.`;
     else if (canPlaceNow && isCastCard(selectedCard)) selectionHint = `${selectedCard.cardType} cards are cast during STRIKE! or COUNTER!, not equipped.`;
     else if (canPlaceNow && placeZones.length === 0) selectionHint = `No open zone for "${selectedCard.title}".`;
@@ -292,8 +285,14 @@ export default function GameBoard() {
   }
   // Preview how a selected Attack's damage adds up before it's declared
   if (!selectionHint && selectedCard?.cardType === 'Attack' && game.phase === 'strike' && game.turn === me) {
-    const bd = attackBreakdown(game, me, selectedCard);
-    if (bd.parts.length) selectionHint = `"${selectedCard.title}" will deal ${breakdownText(bd)} damage.`;
+    // Some bonuses depend on the target (e.g. Skewer for direct hits, Rending Carapace for cards)
+    const direct = attackBreakdown(game, me, selectedCard, { kind: 'player' });
+    const vsCard = attackBreakdown(game, me, selectedCard, { kind: 'card' });
+    if (direct.total !== vsCard.total) {
+      selectionHint = `"${selectedCard.title}" will deal ${breakdownText(direct)} directly, or ${breakdownText(vsCard)} to a card.`;
+    } else if (direct.parts.length) {
+      selectionHint = `"${selectedCard.title}" will deal ${breakdownText(direct)} damage.`;
+    }
   }
 
   // ----- Action bar: hint + buttons for the current situation -----
@@ -331,6 +330,15 @@ export default function GameBoard() {
           Counter with “{selectedCard.title}”
         </button>,
       );
+      // Optional HP sacrifice for more block (e.g. Translucence)
+      const sac = sacrificeOption(selectedCard);
+      if (sac) {
+        buttons.push(
+          <button key="cs" className="ui-btn" onClick={() => { run(playCounter(sessionId, me, source, { sacrifice: true })); setSel(null); }}>
+            Sacrifice {sac.hp} HP: block +{sac.block}
+          </button>,
+        );
+      }
     }
     buttons.push(<button key="none" className="ui-btn" onClick={() => run(resolveWithoutCounter(sessionId, me, attack.id, 'pass'))}>No counter</button>);
   } else if (attack) {
@@ -338,17 +346,6 @@ export default function GameBoard() {
   } else if (myTurn && game.phase === 'equip') {
     hint = 'Equip phase: select a card, then click a glowing zone. Latent cards go face-down.';
     buttons.push(<button key="next" className="ui-btn primary" onClick={() => run(endPhase(sessionId, me))}>Go to STRIKE!</button>);
-  } else if (inMyStrike && stunAsk && targeting) {
-    hint = `"${selectedCard.title}" stuns: choose which of ${oppName}'s Ability slots to restrict.`;
-    ABILITY_ZONES.forEach((z, i) => {
-      const held = game.board[opp]?.[z];
-      buttons.push(
-        <button key={z} className="ui-btn primary" onClick={() => onTarget(stunAsk, z)}>
-          Slot {i + 1}{held?.title ? ` — ${held.title}` : ' (empty)'}
-        </button>,
-      );
-    });
-    buttons.push(<button key="cancel" className="ui-btn" onClick={() => setStunAsk(null)}>Cancel</button>);
   } else if (inMyStrike) {
     hint = targeting
       ? 'Choose a target: a glowing enemy card, or strike the player directly.'
@@ -410,7 +407,6 @@ export default function GameBoard() {
             deckCount={opp ? game.players[opp].deckCount : 0}
             discard={opp ? game.discard[opp] : []}
             exhausted={opp ? game.exhausted?.[opp] : []}
-            stunZone={opp ? game.players[opp].status?.stun?.zone : null}
             clashCard={opp ? clashFor(opp) : null}
             turnNo={game.turnNo}
             highlight={oppHighlight}
@@ -429,7 +425,6 @@ export default function GameBoard() {
             deckCount={hand.deck.length}
             discard={game.discard[me]}
             exhausted={game.exhausted?.[me]}
-            stunZone={player?.status?.stun?.zone}
             clashCard={clashFor(me)}
             turnNo={game.turnNo}
             highlight={myHighlight}

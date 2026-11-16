@@ -1,5 +1,4 @@
 import { STATUSES, opponentOf, statusOf } from '../../game/engine.js';
-import { zoneLabel } from '../../game/zones.js';
 
 // Read-only view of both players' statuses. Statuses are applied and cleared by the rules engine;
 // the only player action is detonating Burn/Purge on the opponent during your own STRIKE! phase.
@@ -10,7 +9,7 @@ export default function EffectsPanel({ game, me, canDetonate, onDetonate }) {
     const s = statusOf(game, uid);
     return STATUSES.filter((d) => (d.id === 'stun' ? s.stun : s[d.id] > 0)).map((d) => ({
       ...d,
-      value: d.id === 'stun' ? zoneLabel(s.stun.zone) : `${s[d.id]}/${d.max}`,
+      value: d.id === 'stun' ? 'Rolls at turn start' : `${s[d.id]}/${d.max}`,
       stacks: d.id === 'stun' ? 1 : s[d.id],
     }));
   };

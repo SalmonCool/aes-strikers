@@ -7,7 +7,7 @@
 // Block values, taken from each card's "Reduce incoming/direct damage by X" text.
 const BLOCK = {
   Reflex: 40, 'Flatside Nail': 40, Translucence: 40, 'Brace For Impact!': 30, "Prowler's Cloak": 50,
-  'Fly! Illy!': 40, 'Summon Illy!': 40, 'Diamond Carapace': 80, Refraction: 40, 'Hidden Carapace': 20,
+  'Fly! Illy!': 40, 'Summon Illy!': 40, 'Chain Of Command-Illy': 20, 'Diamond Carapace': 80, Refraction: 40, 'Hidden Carapace': 20,
 };
 
 const card = (deckId, aetherType, idolType) => (index, title, cardType, typeAction, soulCost, health, damage, description, extra = {}) => ({
@@ -41,19 +41,19 @@ const LINX_CARDS = [
   L(2, 'Skewer', 'Ability', 'Equip', 0, 40, 0,
     'If a "Nail" card is in play, increase all direct damage dealt by 20.'),
   L(3, 'Instant Reposition', 'Ability', 'Equip', 0, 60, 0,
-    'Once during your STRIKE! phase, if you play an attack that costs SOUL!, choose one SOUL! card to retain from the selected card and add it into your hand.'),
+    'Once during your STRIKE! phase, if you play an attack that costs SOUL!, refund 1 SOUL!.'),
   L(4, 'Start! Hunt!', 'Ability', 'Equip', 0, 70, 0,
-    'This can only take effect once per turn. When an opponent draws a card outside of their draw phase, draw one card.'),
+    'This can only take effect once per turn. When an opponent draws a card, draw one card.'),
   L(5, 'Reflex', 'Defend', 'Cast', 0, 0, 0,
     'Reduce incoming damage by 40. If "Instinct" is in play, this card gains the same roll effect.'),
   L(6, 'Flatside Nail', 'Defend', 'Latent', 0, 80, 0,
     'Increase the effect of "Defend" cards by 40.\n\nDetonate: This effect can only take place during the COUNTER phase. Increase this card\'s value by 40 and use it to defend. Discard this card after use.'),
   L(7, 'Translucence', 'Defend', 'Cast', 0, 0, 0,
-    'Reduce incoming damage by 40. You can choose to sacrifice 10 HP. If so, increase the cost of this card by 20.'),
+    'Reduce incoming damage by 40. You can choose to sacrifice 10 HP. If so, increase the value of this card by 20.'),
   L(8, 'Illusionary Wind', 'Spatial', '', 0, 50, 0,
-    'When an attack is fully blocked or countered, refund one SOUL! card from the selected attack to your hand.'),
+    'When your attack is fully blocked or countered, refund 1 SOUL!.'),
   L(9, 'Purrgatory', 'Spatial', '', 0, 50, 10,
-    'If you have the "Purge" status effect, increase damage done by 10.'),
+    'If your opponent has the "Purge" status effect, increase damage done by 10.'),
   L(10, 'Strikethrough', 'Attack', 'Cast', 3, 0, 70,
     'Deal 70 damage. If the opponent declares COUNTER!, deal 30 damage directly to the opponent. This additional damage ignores the COUNTER! interaction and cannot be increased.'),
   L(11, 'Springboard', 'Attack', 'Cast', 1, 0, 20,
@@ -80,7 +80,7 @@ const LINX_CARDS = [
 
 const DREMUR_CARDS = [
   D(1, 'Regenerating Carapace', 'Ability', 'Equip', 0, 0, 0,
-    'After 3 turns of this card being in play, return your "Armor Set" to an active state and discard this card.'),
+    'After 3 turns of this card being in play, return your "Armor Set" (Body Armor) to an active state and discard this card.'),
   D(2, 'Chain Of Command-Illy', 'Ability', 'Equip', 2, 60, 0,
     'If the card "Summon Inty" is in play, discard it. "Summon Inty" cannot be played while this card is in play. Reduce direct damage by 20. If "Summon Inty" was discarded due to this card\'s effect, add the card\'s value to this card.'),
   D(3, 'Chain of Command-Inty', 'Ability', 'Equip', 2, 60, 20,
@@ -132,5 +132,80 @@ export const CARD_SETS = [
   { id: 'set-dremur', name: 'Dremur', builtIn: true, aetherType: 'Earth', idolType: 'Happiness', cards: DREMUR_CARDS },
 ];
 
-// Starter deck recipe for a set: one copy of every card. (SOUL is gained each turn, not drawn.)
-export const starterDeckCards = (set) => Object.fromEntries(set.cards.map((c) => [c.id, 1]));
+// Example / starter decks: two 30-card decks per set, each attack-forward but built around a different
+// plan, so new players can pick a style. (SOUL is gained each turn, not drawn.)
+const STARTER_RECIPES = {
+  'set-linx': [
+    {
+      name: 'Nail Barrage',
+      blurb: 'Flood the board with Nails: cheaper attacks, huge Springboards, then cash them in with Veil Piercer and Detonate.',
+      cards: {
+        Springboard: 6, Nail: 5, Strikethrough: 3, // 14 attacks
+        'Just a Touch': 1, Skewer: 1, 'Veil Piercer': 1,
+        Reflex: 2, 'Flatside Nail': 2, 'Brace For Impact!': 2,
+        Purrgatory: 1,
+        'MEENOS!': 1, 'GRANT ME!': 1, 'AGILITY!': 1,
+        'Permeable Paws': 1, Instinct: 1, "Prowler's Cloak": 1,
+      },
+    },
+    {
+      name: 'Veil Tempo',
+      blurb: 'Punish every COUNTER! with Strikethrough, refund SOUL to keep swinging, and out-draw your opponent with Start! Hunt!.',
+      cards: {
+        Strikethrough: 5, Springboard: 4, Nail: 3, // 12 attacks
+        'Instant Reposition': 1, 'Start! Hunt!': 1, 'Veil Piercer': 1, 'Just a Touch': 1,
+        Translucence: 2, Reflex: 2, 'Brace For Impact!': 1, 'Flatside Nail': 1,
+        'Illusionary Wind': 2,
+        'MEENOS!': 1, 'GRANT ME!': 1, 'AGILITY!': 1,
+        'Permeable Paws': 1, Instinct: 1, "Prowler's Cloak": 1,
+      },
+    },
+  ],
+  'set-dremur': [
+    {
+      name: 'Inty Onslaught',
+      blurb: 'Pick the Inty side: Summon Inty strikes every turn, Chain of Command-Inty and STRENGTH! pile on damage, Crashing Mandibles cracks armor.',
+      cards: {
+        'Reckless Lunge': 4, 'Churning Constriction': 4, 'Summon Inty': 3, 'Crashing Mandibles': 4, // 15 attacks
+        'Chain of Command-Inty': 1, 'Rending Carapace': 1,
+        'Diamond Carapace': 3, Refraction: 3,
+        'Chain of Command: Gravity': 1,
+        'Maxees!': 1, 'Grant Me!': 1, 'STRENGTH!': 1,
+        'Wand Of Command': 1, 'Little Buddy': 1, 'Hidden Carapace': 1,
+      },
+    },
+    {
+      name: 'Illy Fortress',
+      blurb: 'Pick the Illy side: Summon Illy! and Fly! Illy! wall you in while Reckless Lunge and Gravity make every Stun cost cards.',
+      cards: {
+        'Reckless Lunge': 5, 'Churning Constriction': 5, 'Crashing Mandibles': 3, // 13 attacks
+        'Chain Of Command-Illy': 1, 'Regenerating Carapace': 1,
+        'Summon Illy!': 3, 'Fly! Illy!': 3, 'Diamond Carapace': 2,
+        'Chain of Command: Gravity': 1,
+        'Maxees!': 1, 'Grant Me!': 1, 'STRENGTH!': 1,
+        'Wand Of Command': 1, 'Little Buddy': 1, 'Hidden Carapace': 1,
+      },
+    },
+  ],
+};
+
+// Turns a { title: copies } recipe into { cardId: copies } for the set.
+const recipeCards = (set, recipe) => {
+  const byTitle = Object.fromEntries(set.cards.map((c) => [c.title, c.id]));
+  return Object.fromEntries(Object.entries(recipe).filter(([t]) => byTitle[t]).map(([t, n]) => [byTitle[t], n]));
+};
+
+// Every starter deck: { id, setId, name, blurb, cards }. The first deck of each set keeps the original
+// example id so players who had it selected keep it.
+export const STARTER_DECKS = CARD_SETS.flatMap((set) =>
+  (STARTER_RECIPES[set.id] || []).map((r, i) => ({
+    id: i === 0 ? `example-${set.id}` : `example-${set.id}-${i + 1}`,
+    setId: set.id,
+    name: `${set.name}: ${r.name}`,
+    blurb: r.blurb,
+    cards: recipeCards(set, r.cards),
+  })));
+
+// A set's default starter deck (its first recipe), or one of every card for sets without a recipe.
+export const starterDeckCards = (set) => STARTER_DECKS.find((d) => d.setId === set.id)?.cards
+  || Object.fromEntries(set.cards.map((c) => [c.id, 1]));
