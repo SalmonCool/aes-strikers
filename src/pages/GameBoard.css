@@ -1021,3 +1021,215 @@
 .pile-head-actions { display: inline-flex; gap: 8px; }
 .pile-card.pickable { cursor: pointer; border-radius: 6%; transition: transform 0.15s, box-shadow 0.15s; }
 .pile-card.pickable:hover, .pile-card.pickable:focus-visible { transform: translateY(-3px); box-shadow: 0 0 14px rgba(255, 215, 106, 0.75); outline: none; }
+
+/* ================= Combat effects (visual only) ================= */
+
+/* ---- Health bar: shake, red flash, draining chunk, floating number ---- */
+.pt-health-wrap { position: relative; }
+.pt-health-wrap.hit { animation: hp-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+.pt-health-wrap.hit .pt-health { animation: hp-flash 0.6s ease-out both; }
+.pt-health-lost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #fff3c4, #ff5a5a);
+  box-shadow: 0 0 8px rgba(255, 90, 90, 0.9);
+  transform-origin: left center;
+  animation: hp-drain 0.7s ease-in 0.35s both;
+}
+.pt-health-dmg {
+  position: absolute;
+  right: 6px;
+  top: -4px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #ff6b7d;
+  text-shadow: 0 0 6px rgba(255, 60, 80, 0.9), 0 1px 0 #000;
+  pointer-events: none;
+  animation: hp-float 1.3s ease-out both;
+}
+@keyframes hp-shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(3px); }
+  30%, 50%, 70% { transform: translateX(-5px) rotate(-0.6deg); }
+  40%, 60% { transform: translateX(5px) rotate(0.6deg); }
+}
+@keyframes hp-flash {
+  0% { box-shadow: 0 0 0 2px rgba(255, 70, 90, 0.9), 0 0 18px rgba(255, 50, 70, 0.9); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 70, 90, 0), 0 0 0 rgba(255, 50, 70, 0); }
+}
+@keyframes hp-drain { from { transform: scaleX(1); opacity: 1; } to { transform: scaleX(0); opacity: 0.6; } }
+@keyframes hp-float {
+  0% { opacity: 0; transform: translateY(6px) scale(0.8); }
+  15% { opacity: 1; transform: translateY(-4px) scale(1.15); }
+  100% { opacity: 0; transform: translateY(-22px) scale(1); }
+}
+
+/* ---- Attacker plate: charged glow and a small lunge; target plate: reticle ---- */
+.pt-player { position: relative; transition: box-shadow 0.3s; }
+.pt-player.attacking {
+  box-shadow: 0 0 0 1px rgba(255, 140, 90, 0.7), 0 0 18px rgba(255, 110, 60, 0.45);
+  animation: plate-lunge 0.55s ease-out both;
+}
+.pt-player.targeted { box-shadow: 0 0 0 1px rgba(255, 70, 90, 0.8), 0 0 16px rgba(255, 50, 70, 0.4); }
+.pt-reticle {
+  position: absolute;
+  inset: -4px;
+  border-radius: 14px;
+  pointer-events: none;
+  background:
+    linear-gradient(#ff5a6e, #ff5a6e) top left / 16px 2px no-repeat,
+    linear-gradient(#ff5a6e, #ff5a6e) top left / 2px 16px no-repeat,
+    linear-gradient(#ff5a6e, #ff5a6e) top right / 16px 2px no-repeat,
+    linear-gradient(#ff5a6e, #ff5a6e) top right / 2px 16px no-repeat,
+    linear-gradient(#ff5a6e, #ff5a6e) bottom left / 16px 2px no-repeat,
+    linear-gradient(#ff5a6e, #ff5a6e) bottom left / 2px 16px no-repeat,
+    linear-gradient(#ff5a6e, #ff5a6e) bottom right / 16px 2px no-repeat,
+    linear-gradient(#ff5a6e, #ff5a6e) bottom right / 2px 16px no-repeat;
+  filter: drop-shadow(0 0 4px rgba(255, 60, 80, 0.9));
+  animation: reticle-lock 1.2s ease-in-out infinite;
+}
+@keyframes plate-lunge {
+  0% { transform: none; }
+  35% { transform: translateX(6px) scale(1.02); }
+  100% { transform: none; }
+}
+@keyframes reticle-lock {
+  0%, 100% { inset: -4px; opacity: 1; }
+  50% { inset: -1px; opacity: 0.7; }
+}
+
+/* ---- Targeted card zone: a rotating lock-on reticle ---- */
+.zone.targeted { border-color: #ff5a6e; box-shadow: 0 0 2cqw rgba(255, 60, 80, 0.55), inset 0 0 1.5cqw rgba(255, 60, 80, 0.25); }
+.zone-reticle {
+  position: absolute;
+  inset: -6%;
+  z-index: 4;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+.zone-reticle span {
+  width: 70%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 0.35cqw dashed #ff5a6e;
+  box-shadow: 0 0 1.5cqw rgba(255, 60, 80, 0.7);
+  animation: reticle-spin 2.4s linear infinite;
+}
+.zone-reticle::before,
+.zone-reticle::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 90, 110, 0.85);
+}
+.zone-reticle::before { width: 0.3cqw; height: 90%; }
+.zone-reticle::after { height: 0.3cqw; width: 90%; }
+@keyframes reticle-spin {
+  from { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(0.92); }
+  to { transform: rotate(360deg) scale(1); }
+}
+
+/* ---- Clash layer ---- */
+.clash-fx { position: fixed; inset: 0; z-index: 51; pointer-events: none; overflow: hidden; }
+
+/* COUNTER! spark between the two Strike! areas */
+.cfx-spark { position: absolute; width: 0; height: 0; }
+.cfx-spark-ring,
+.cfx-spark-flash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.cfx-spark-ring {
+  width: 180px;
+  height: 180px;
+  border: 3px solid rgba(160, 250, 255, 0.95);
+  box-shadow: 0 0 24px rgba(0, 229, 229, 0.9), inset 0 0 18px rgba(0, 229, 229, 0.6);
+  animation: cfx-ring 0.7s ease-out both;
+}
+.cfx-spark-flash {
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle, #ffffff 0%, rgba(160, 250, 255, 0.9) 25%, rgba(0, 229, 229, 0.4) 50%, transparent 70%);
+  animation: cfx-flash 0.55s ease-out both;
+}
+.cfx-ray {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 90px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.95), rgba(0, 229, 229, 0));
+  transform-origin: left center;
+  transform: rotate(var(--a)) scaleX(0);
+  animation: cfx-ray 0.5s ease-out both;
+}
+.cfx-word {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.4rem, 3vw, 2.4rem);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: #fff;
+  -webkit-text-stroke: 1px rgba(0, 0, 0, 0.6);
+  animation: cfx-word 1.1s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.cfx-word.counter { text-shadow: 0 0 12px rgba(0, 229, 229, 1), 0 0 26px rgba(0, 229, 229, 0.7); }
+.cfx-word.blocked { left: 50%; top: 50%; text-shadow: 0 0 12px rgba(255, 215, 106, 1), 0 0 26px rgba(255, 160, 60, 0.7); animation-delay: 0.2s; }
+@keyframes cfx-ring { from { width: 30px; height: 30px; opacity: 1; } to { width: 220px; height: 220px; opacity: 0; } }
+@keyframes cfx-flash { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); } }
+@keyframes cfx-ray { 0% { transform: rotate(var(--a)) scaleX(0); opacity: 1; } 60% { opacity: 1; } 100% { transform: rotate(var(--a)) scaleX(1); opacity: 0; } }
+@keyframes cfx-word {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  20% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+  70% { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -85%) scale(0.96); }
+}
+
+/* Fully blocked: the attack card shatters */
+.cfx-shatter { position: absolute; aspect-ratio: 467 / 657; transform: translate(-50%, -50%); }
+.cfx-shard {
+  position: absolute;
+  inset: 0;
+  filter: drop-shadow(0 0 4px rgba(160, 250, 255, 0.8));
+  animation: cfx-shard 0.9s cubic-bezier(0.25, 0.6, 0.4, 1) var(--delay) both;
+}
+@keyframes cfx-shard {
+  0% { transform: none; opacity: 1; filter: drop-shadow(0 0 4px rgba(160, 250, 255, 0.8)) brightness(1); }
+  12% { transform: translate(calc(var(--dx) * 0.06), calc(var(--dy) * 0.06)); filter: drop-shadow(0 0 10px rgba(255, 255, 255, 1)) brightness(1.8); }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.7); opacity: 0; }
+}
+
+/* Hit: a red impact flash over whatever took the damage */
+.cfx-impact {
+  position: absolute;
+  border-radius: 12px;
+  background: radial-gradient(ellipse at center, rgba(255, 240, 220, 0.85) 0%, rgba(255, 80, 90, 0.55) 35%, transparent 70%);
+  box-shadow: 0 0 30px rgba(255, 60, 80, 0.8);
+  animation: cfx-impact 0.6s ease-out var(--delay) both;
+}
+@keyframes cfx-impact {
+  0% { opacity: 0; transform: scale(0.85); }
+  25% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.15); }
+}
+
+@keyframes cfx-fade { from { opacity: 1; } to { opacity: 0; } }
+.clash-fx.reduced .cfx-shard { animation: cfx-fade 0.6s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .pt-health-wrap.hit, .pt-player.attacking, .pt-reticle, .zone-reticle span { animation: none; }
+  .cfx-ray, .cfx-spark-ring { display: none; }
+  .cfx-shard { animation: cfx-fade 0.6s ease-out both; }
+  .cfx-word { animation: cfx-fade 1s ease-out both; }
+}
+.cfx-shards { position: absolute; inset: 0; }

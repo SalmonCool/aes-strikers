@@ -28,7 +28,7 @@ const CardSlot = ({ card, className = '' }) => {
 //   highlight:    Map zoneId -> 'place' | 'target' | 'reveal' | 'use' | 'selected'
 export default function PlayerMat({
   side, owner, playerName, board = {}, latentCards = {}, token = null, deckCount = 0, discard = [], exhausted = [],
-  clashCard, turnNo, highlight, onZoneClick, viewablePiles = [], onPileClick,
+  clashCard, turnNo, highlight, onZoneClick, viewablePiles = [], onPileClick, targetZone = null,
 }) {
   const [hover, setHover] = useState(null); // { card, rect }
 
@@ -112,7 +112,7 @@ export default function PlayerMat({
         return (
           <div
             key={z.id}
-            className={`zone zone-${z.id} ${filled ? 'filled' : ''} ${lit ? `lit ${lit}` : ''} ${viewable ? 'viewable' : ''}`}
+            className={`zone zone-${z.id} ${filled ? 'filled' : ''} ${lit ? `lit ${lit}` : ''} ${viewable ? 'viewable' : ''} ${targetZone === z.id ? 'targeted' : ''}`}
             data-zone={z.id}
             style={{ gridColumn: z.span ? `${z.col} / span ${z.span}` : z.col, gridRow: z.row }}
             onClick={click || undefined}
@@ -123,6 +123,7 @@ export default function PlayerMat({
             title={viewable ? `Click to view ${z.label.toLowerCase()}` : undefined}
           >
             {content}
+            {targetZone === z.id && <span className="zone-reticle" aria-hidden="true"><span /></span>}
           </div>
         );
       })}

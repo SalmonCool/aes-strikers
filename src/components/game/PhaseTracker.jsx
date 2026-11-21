@@ -1,10 +1,21 @@
+import { useState } from 'react';
 import { PHASES, STARTING_HEALTH, STATUSES, SOUL_INCOME_CAP, opponentOf, soulIncome } from '../../game/engine.js';
 import PlayerIcon from '../PlayerIcon.jsx';
 import { resourceOf, tokenById } from '../../game/tokens.js';
 
 const SOUL_PIPS = 5; // minimum pips shown so the meter has a stable shape
 
-function HealthBar({ player, uid, isMe, avatar }) {
+// attacking / targeted: visual cues while an attack is in progress. The bar shakes and shows "-X" when health drops.
+function HealthBar({ player, uid, isMe, avatar, attacking = false, targeted = false }) {
+  // Damage feedback, adjusted during render when health drops (React's pattern for reacting to a prop change)
+  const health = player?.health ?? null;
+  const [prevHealth, setPrevHealth] = useState(health);
+  const [hit, setHit] = useState(null); // { amount, n }
+  if (health !== prevHealth) {
+    if (health !== null && prevHealth !== null && health < prevHealth) setHit((h) => ({ amount: prevHealth - health, n: (h?.n || 0) + 1 }));
+    setPrevHealth(health);
+  }
+
   if (!player) {
     return (
       <div className="pt-player empty">
@@ -23,16 +34,28 @@ function HealthBar({ player, uid, isMe, avatar }) {
     text: d.id === 'stun' ? 'Stunned' : `${d.label} ×${st[d.id]}`,
   }));
   return (
-    <div className={`pt-player ${isMe ? 'me' : 'opp'}`} data-player-plate={uid}>
+    <div className={`pt-player ${isMe ? 'me' : 'opp'} ${attacking ? 'attacking' : ''} ${targeted ? 'targeted' : ''}`} data-player-plate={uid}>
+      {targeted && <span className="pt-reticle" aria-hidden="true" />}
       <div className="pt-player-head">
         <PlayerIcon src={avatar?.src} crop={avatar?.crop} name={player.name} soul={soul} resource={res.id} status={st} size={46} />
         <div className="pt-player-name">
           <span className="pt-name-text">{player.name}</span>{isMe && <span className="pt-you">You</span>}
         </div>
       </div>
-      <div className="pt-health" role="meter" aria-valuemin={0} aria-valuemax={STARTING_HEALTH} aria-valuenow={player.health} aria-label={`${player.name} health`}>
-        <div className="pt-health-fill" style={{ width: `${pct}%` }} />
-        <span className="pt-health-text">{player.health} / {STARTING_HEALTH}</span>
+      {/* Keyed per hit so the shake / drain replays; the lost chunk drains away after the shake */}
+      <div key={hit ? `hit-${hit.n}` : 'hp'} className={`pt-health-wrap ${hit ? 'hit' : ''}`}>
+        <div className="pt-health" role="meter" aria-valuemin={0} aria-valuemax={STARTING_HEALTH} aria-valuenow={player.health} aria-label={`${player.name} health`}>
+          <div className="pt-health-fill" style={{ width: `${pct}%` }} />
+          {hit && (
+            <span
+              className="pt-health-lost"
+              aria-hidden="true"
+              style={{ left: `${pct}%`, width: `${Math.min(100 - pct, (hit.amount / STARTING_HEALTH) * 100)}%` }}
+            />
+          )}
+          <span className="pt-health-text">{player.health} / {STARTING_HEALTH}</span>
+        </div>
+        {hit && <span className="pt-health-dmg" aria-hidden="true">−{hit.amount}</span>}
       </div>
       <div className={`pt-soul res-${res.id}`} title={`Banked ${res.label}, spent to play cards. +${nextGain} next turn (income grows by 1 each turn, up to ${SOUL_INCOME_CAP}). Unspent ${res.label} is kept.`}>
         <span className="pt-soul-label">{res.label}</span>
@@ -108,8 +131,8 @@ export default function PhaseTracker({ game, me, avatars = {} }) {
       </ol>
 
       <div className="pt-players">
-        <HealthBar player={game.players[opp]} uid={opp} avatar={avatars[opp]} />
-        <HealthBar player={game.players[me]} uid={me} avatar={avatars[me]} isMe />
+        <HealthBar player={game.players[opp]} uid={opp} avatar={avatars[opp]} attacking={attack?.by === opp} targeted={attack?.defender === opp && attack.target.kind === 'player'} />
+        <HealthBar player={game.players[me]} uid={me} avatar={avatars[me]} isMe attacking={attack?.by === me} targeted={attack?.defender === me && attack.target.kind === 'player'} />
       </div>
     </div>
   );

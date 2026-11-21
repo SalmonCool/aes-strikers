@@ -20,6 +20,7 @@ import SetupPanel from '../components/game/SetupPanel.jsx';
 import EffectsPanel from '../components/game/EffectsPanel.jsx';
 import DiceRoll from '../components/game/DiceRoll.jsx';
 import AttackFx from '../components/game/AttackFx.jsx';
+import ClashFx from '../components/game/ClashFx.jsx';
 import TurnBanner from '../components/game/TurnBanner.jsx';
 import { isMuted, playTurnChime, setMuted } from '../game/sounds.js';
 
@@ -268,7 +269,9 @@ export default function GameBoard() {
     const c = game.clash;
     if (attack?.by === uid) return attack.card;
     if (!c) return null;
-    return c.by === uid ? c.attackCard : c.defender === uid ? c.counterCard : null;
+    // A fully blocked attack card shatters (ClashFx), so it no longer sits in the Strike! area
+    if (c.by === uid) return c.outcome === 'blocked' ? null : c.attackCard;
+    return c.defender === uid ? c.counterCard : null;
   };
 
   // Why a selected card can't be played (if that's the case)
@@ -424,6 +427,7 @@ export default function GameBoard() {
             turnNo={game.turnNo}
             highlight={oppHighlight}
             onZoneClick={(zone) => onTarget({ kind: 'card', zone })}
+            targetZone={attack?.defender === opp && attack.target.kind === 'card' ? attack.target.zone : null}
             viewablePiles={opp ? ['discard'] : []}
             onPileClick={(kind) => setPile({ kind, uid: opp })}
           />
@@ -442,6 +446,7 @@ export default function GameBoard() {
             turnNo={game.turnNo}
             highlight={myHighlight}
             onZoneClick={onMyZone}
+            targetZone={attack?.defender === me && attack.target.kind === 'card' ? attack.target.zone : null}
             viewablePiles={['deck', 'discard']}
             onPileClick={(kind) => setPile({ kind, uid: me })}
           />
@@ -492,6 +497,7 @@ export default function GameBoard() {
       <TurnBanner game={game} me={me} />
       <DiceRoll rolls={game.rolls} names={names} />
       <AttackFx attack={attack} />
+      <ClashFx clash={game.clash} />
 
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

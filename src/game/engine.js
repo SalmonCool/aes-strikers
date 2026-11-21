@@ -1533,7 +1533,11 @@ function resolveAttack(ctx, counter) {
   // Cast cards are spent; revealed Latent cards stay in play
   if (!a.fromLatent) pushDiscard(ctx, a.by, a.card);
   if (counter && !counter.fromLatent) pushDiscard(ctx, def, counter.card);
-  game.clash = { by: a.by, defender: def, attackCard: a.card, counterCard: counter?.card || null };
+  // `id` / `outcome` are for the visual effects only (shatter on a full block, etc.); no rule reads them.
+  game.clash = {
+    id: a.id, by: a.by, defender: def, attackCard: a.card, counterCard: counter?.card || null,
+    outcome: net === 0 ? 'blocked' : 'hit', target: a.target,
+  };
   game.attack = null;
   checkDefeat(ctx);
 }
