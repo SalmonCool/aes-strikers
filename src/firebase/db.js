@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './config.js';
 import { hasNoHealth } from '../game/zones.js';
+import { TOKENS, cardTokenId } from '../game/tokens.js';
 import { AVATAR_ZOOM, DEFAULT_CROP, addArtDeletesToBatch, addArtToBatch, forgetArt, normalizeCrop } from './cardArt.js';
 import { newGame, newPlayer } from '../game/engine.js';
 
@@ -58,7 +59,9 @@ export async function findUserByEmail(email) {
 
 // ---------- Cards ----------
 // Card shape:
-//   title, cardType, typeAction ('' = none), description, aetherType, idolType: string
+//   title, cardType, typeAction ('' = none), description: string
+//   token: id of the Hero/Villain token the card belongs to (game/tokens.js). Older cards may instead have
+//          aetherType/idolType, which cardTokenId() maps to a token.
 //   soulCost, health, damage: number
 //   block: number   (Defend cards: damage blocked when used as a COUNTER!; Body Armor: direct damage reduced)
 //   healthPlus, damagePlus: boolean   (show the stat as "40+", i.e. variable / can increase)
@@ -70,8 +73,6 @@ export async function findUserByEmail(email) {
 // ('Soul' was a resource card type; SOUL is now gained each turn, so new cards can't use it.)
 export const CARD_TYPES = ['Ability', 'Attack', 'Defend', 'Spatial', 'Weapon', 'Shield', 'Body Armor', 'Incantation'];
 export const TYPE_ACTIONS = ['Equip', 'Cast', 'Latent'];
-export const AETHER_TYPES = ['Air', 'Wind', 'Earth', 'Fire', 'Water', 'Shadow', 'Aether', 'Demon', 'Soul'];
-export const IDOL_TYPES = ['Anger', 'Fear', 'Sadness', 'Disgust', 'Happiness', 'Surprise'];
 export const STATUS_IDS = ['burn', 'purge', 'freeze', 'frostbite', 'stun'];
 
 export const EMPTY_CARD = {
@@ -88,8 +89,7 @@ export const EMPTY_CARD = {
   inflictStatus: '',
   inflictStacks: 1,
   inflictOn: 'hit',
-  aetherType: AETHER_TYPES[0],
-  idolType: IDOL_TYPES[0],
+  token: TOKENS[0].id,
   art: null,
   artCrop: DEFAULT_CROP,
 };
@@ -108,8 +108,7 @@ const cardFields = (card) => ({
   inflictStatus: STATUS_IDS.includes(card.inflictStatus) ? card.inflictStatus : '',
   inflictStacks: Math.min(3, Math.max(1, Number(card.inflictStacks) || 1)),
   inflictOn: card.inflictOn === 'direct' ? 'direct' : 'hit',
-  aetherType: card.aetherType,
-  idolType: card.idolType,
+  token: cardTokenId(card) || TOKENS[0].id,
   artCrop: normalizeCrop(card.artCrop),
 });
 

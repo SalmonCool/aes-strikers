@@ -1,7 +1,8 @@
 import { createContext, useContext, useState } from 'react';
 import Card from './Card.jsx';
 import CardPreview, { hoverRect } from './CardPreview.jsx';
-import { MAX_INCANTATIONS, ZONES } from '../game/zones.js';
+import { ZONES } from '../game/zones.js';
+import { resourceOf, tokenById } from '../game/tokens.js';
 
 // Lets every card slot on the mat report hover without threading props through each zone.
 const HoverContext = createContext(null);
@@ -22,11 +23,11 @@ const CardSlot = ({ card, className = '' }) => {
 // One player's half of the board.
 //   board:        { zoneId: card | { faceDown } , incantation: card[] }
 //   latentCards:  (own side only) the real cards behind face-down Latent slots
-//   tokens:       { aether, idol }
+//   token:        the player's Hero/Villain token id
 //   clashCard:    card shown in the Strike! area (the attack or counter just played)
 //   highlight:    Map zoneId -> 'place' | 'target' | 'reveal' | 'use' | 'selected'
 export default function PlayerMat({
-  side, owner, playerName, board = {}, latentCards = {}, tokens = {}, deckCount = 0, discard = [], exhausted = [],
+  side, owner, playerName, board = {}, latentCards = {}, token = null, deckCount = 0, discard = [], exhausted = [],
   clashCard, turnNo, highlight, onZoneClick, viewablePiles = [], onPileClick,
 }) {
   const [hover, setHover] = useState(null); // { card, rect }
@@ -47,14 +48,15 @@ export default function PlayerMat({
         let content = label;
         let filled = false;
 
-        if (z.id === 'aether' || z.id === 'idol') {
-          const value = z.id === 'aether' ? tokens.aether : tokens.idol;
-          if (value) {
+        if (z.id === 'token') {
+          const t = tokenById(token);
+          if (t) {
             filled = true;
             content = (
-              <div className={`token ${z.id}`}>
-                <span className="token-value">{value}</span>
-                <span className="token-kind">{z.label}</span>
+              <div className={`token ${t.kind}`} title={`${t.kind === 'villain' ? 'Villain' : 'Hero'} token — earns ${resourceOf(t.id).label}`}>
+                <span className="token-value">{t.name}</span>
+                <span className="token-emotion">{t.emotion}</span>
+                <span className="token-kind">{t.kind === 'villain' ? 'Villain' : 'Hero'}</span>
               </div>
             );
           }
@@ -72,11 +74,18 @@ export default function PlayerMat({
           const list = board.incantation || [];
           if (list.length) {
             filled = true;
-            const awake = list.length === MAX_INCANTATIONS;
+            // Each Incantation powers up one tier at the end of each of its owner's turns (3 tiers)
+            const TIERS = 3;
+            const tier = Math.min(TIERS, Math.max(0, ...list.map((c) => c.tier || 0)));
             content = (
               <>
-                <div className="incantation-row">{list.map((c) => <CardSlot key={c.iid} card={c} className={awake ? '' : 'dormant'} />)}</div>
-                <span className={`zone-count ${awake ? 'awake' : ''}`}>{awake ? 'Awakened' : `Dormant ${list.length}/${MAX_INCANTATIONS}`}</span>
+                <div className="incantation-row">{list.map((c) => <CardSlot key={c.iid} card={c} className={c.tier ? '' : 'dormant'} />)}</div>
+                <span className={`zone-count ${tier === TIERS ? 'awake' : ''}`} title={`${tier} of ${TIERS} turn effects active`}>
+                  <span className="incant-tiers">
+                    {tier === TIERS ? 'Fully active' : tier ? `Turn ${tier} active` : 'Charging'}
+                    {Array.from({ length: TIERS }, (_, i) => <span key={i} className={`incant-pip ${i < tier ? 'on' : ''}`} />)}
+                  </span>
+                </span>
               </>
             );
           }

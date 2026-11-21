@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AETHER_TYPES, CARD_TYPES, EMPTY_CARD, IDOL_TYPES, STATUS_IDS, TYPE_ACTIONS, addCard, updateCard,
+  CARD_TYPES, EMPTY_CARD, STATUS_IDS, TYPE_ACTIONS, addCard, updateCard,
 } from '../../firebase/db.js';
 import { DEFAULT_CROP, MAX_ART_UPLOAD_BYTES, compressImage, loadArt } from '../../firebase/cardArt.js';
+import { TOKENS, cardTokenId, resourceOf, tokenLabel } from '../../game/tokens.js';
 import Card from '../Card.jsx';
 import ArtCropper from './ArtCropper.jsx';
 import { hasNoHealth } from '../../game/zones.js';
@@ -41,8 +42,7 @@ const editableFields = (c) => ({
   health: c.health ?? 0,
   damage: c.damage ?? 0,
   block: c.block ?? 0,
-  aetherType: c.aetherType || EMPTY_CARD.aetherType,
-  idolType: c.idolType || EMPTY_CARD.idolType,
+  token: cardTokenId(c) || EMPTY_CARD.token,
   artCrop: c.artCrop || DEFAULT_CROP,
 });
 
@@ -164,9 +164,13 @@ export default function CardEditorModal({ uid, existing, onClose }) {
               <label><input type="checkbox" checked={card.healthPlus} onChange={(e) => setCard((c) => ({ ...c, healthPlus: e.target.checked }))} /> Health is variable (shows “+”)</label>
               <label><input type="checkbox" checked={card.damagePlus} onChange={(e) => setCard((c) => ({ ...c, damagePlus: e.target.checked }))} /> Damage is variable (shows “+”)</label>
             </div>
-            <div className="field-row">
-              <Select id="card-aether" label="Aether Type" value={card.aetherType} onChange={set('aetherType')} options={AETHER_TYPES} />
-              <Select id="card-idol" label="Idol Type" value={card.idolType} onChange={set('idolType')} options={IDOL_TYPES} />
+            <div className="field">
+              <label htmlFor="card-token">Token</label>
+              <select id="card-token" className="ui-select" value={card.token} onChange={set('token')}>
+                {TOKENS.map((t) => (
+                  <option key={t.id} value={t.id}>{t.kind === 'villain' ? 'Villain' : 'Hero'}: {tokenLabel(t.id)} (cost in {resourceOf(t.id).label})</option>
+                ))}
+              </select>
             </div>
             <div className="field">
               <label htmlFor="card-desc">Card Description</label>

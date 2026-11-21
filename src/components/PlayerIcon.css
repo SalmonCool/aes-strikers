@@ -4,6 +4,12 @@
 .player-icon {
   --size: 56px;
   --soul: 0;
+  /* Resource theme (RGB triplets): a1 main flame, a2 bright shimmer, a3 accent, a4 soft highlight, core halo centre */
+  --a1: 64, 160, 255;
+  --a2: 127, 247, 255;
+  --a3: 0, 229, 229;
+  --a4: 150, 220, 255;
+  --core: 120, 200, 255;
   position: relative;
   display: inline-grid;
   place-items: center;
@@ -34,11 +40,28 @@
   text-shadow: 0 0 8px rgba(0, 229, 229, 0.6);
 }
 .player-icon.lit .pi-frame {
-  border-color: rgba(160, 230, 255, calc(0.55 + 0.45 * var(--soul)));
+  border-color: rgba(var(--a4), calc(0.55 + 0.45 * var(--soul)));
   box-shadow:
     0 0 0 2px rgba(3, 8, 22, 0.9),
-    0 0 calc(4px + 14px * var(--soul)) rgba(90, 190, 255, calc(0.3 + 0.5 * var(--soul))),
+    0 0 calc(4px + 14px * var(--soul)) rgba(var(--a1), calc(0.3 + 0.5 * var(--soul))),
     inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+/* SHADOW (Villains): deep purple-black flame with a violet shimmer */
+.player-icon.res-shadow {
+  --a1: 92, 28, 160;
+  --a2: 205, 150, 255;
+  --a3: 40, 6, 70;
+  --a4: 150, 90, 235;
+  --core: 30, 6, 52;
+}
+/* DRIVE (Villains): deep red flame with a hot crimson shimmer */
+.player-icon.res-drive {
+  --a1: 190, 16, 38;
+  --a2: 255, 130, 120;
+  --a3: 110, 0, 18;
+  --a4: 255, 72, 72;
+  --core: 140, 8, 24;
 }
 
 /* ---- Aura ---- */
@@ -66,10 +89,10 @@
 .pi-flame.f1 {
   background: conic-gradient(
     from 0deg,
-    transparent 0deg, rgba(64, 160, 255, 0.95) 30deg, transparent 70deg,
-    rgba(127, 247, 255, 0.85) 120deg, transparent 165deg,
-    rgba(64, 140, 255, 0.95) 215deg, transparent 255deg,
-    rgba(150, 220, 255, 0.85) 300deg, transparent 345deg
+    transparent 0deg, rgba(var(--a1), 0.95) 30deg, transparent 70deg,
+    rgba(var(--a2), 0.85) 120deg, transparent 165deg,
+    rgba(var(--a1), 0.95) 215deg, transparent 255deg,
+    rgba(var(--a4), 0.85) 300deg, transparent 345deg
   );
   filter: blur(calc(var(--size) * 0.07));
   animation: pi-spin 7s linear infinite, pi-flicker 1.9s ease-in-out infinite;
@@ -78,9 +101,9 @@
   inset: 8%;
   background: conic-gradient(
     from 90deg,
-    transparent 0deg, rgba(0, 229, 229, 0.8) 40deg, transparent 90deg,
-    rgba(90, 168, 255, 0.9) 160deg, transparent 210deg,
-    rgba(0, 200, 255, 0.8) 270deg, transparent 330deg
+    transparent 0deg, rgba(var(--a3), 0.8) 40deg, transparent 90deg,
+    rgba(var(--a4), 0.9) 160deg, transparent 210deg,
+    rgba(var(--a3), 0.8) 270deg, transparent 330deg
   );
   filter: blur(calc(var(--size) * 0.05));
   animation: pi-spin 11s linear infinite reverse, pi-flicker 2.6s ease-in-out infinite 0.4s;
@@ -88,8 +111,19 @@
 /* Soft halo, pulsing slowly like breath */
 .pi-glow {
   inset: 14%;
-  background: radial-gradient(circle, rgba(120, 200, 255, 0.75) 45%, rgba(40, 120, 255, 0.25) 62%, transparent 72%);
+  background: radial-gradient(circle, rgba(var(--core), 0.75) 45%, rgba(var(--a1), 0.25) 62%, transparent 72%);
   animation: pi-breathe 3.2s ease-in-out infinite;
+}
+
+/* Shimmer: a thin bright glint sweeping around the flame */
+.pi-shimmer {
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg 330deg, rgba(var(--a2), 0.9) 350deg, transparent 360deg);
+  filter: blur(calc(var(--size) * 0.03));
+  mix-blend-mode: screen;
+  animation: pi-spin 3.6s linear infinite;
 }
 
 @keyframes pi-spin { to { transform: rotate(360deg); } }
@@ -104,7 +138,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pi-flame, .pi-glow { animation: none; }
+  .pi-flame, .pi-glow, .pi-shimmer { animation: none; }
   .pi-aura { transition: none; }
 }
 

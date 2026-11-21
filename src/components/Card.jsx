@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { artKey, cropStyle, loadArt } from '../firebase/cardArt.js';
 import './Card.css';
+import { cardTokenId, resourceOf, tokenById } from '../game/tokens.js';
 
 const SOUL_CARD_ART = '/cards/soul.jpg';
 
@@ -64,7 +65,9 @@ function FittedText({ text }) {
 // Renders a card using the standard layout. Scales to whatever width its container gives it.
 // `artUrl` (e.g. a local preview) takes priority over the saved `art` reference.
 export default function Card({ card, children }) {
-  const { title, cardType, typeAction, description, soulCost, health, damage, aetherType, idolType } = card;
+  const { title, cardType, typeAction, description, soulCost, health, damage } = card;
+  const token = tokenById(cardTokenId(card));
+  const res = resourceOf(token?.id);
 
   // Damage feedback: when health drops while this card is on screen, show a floating "−X" and shake the orb.
   // (State is adjusted during render — React's recommended pattern for reacting to a prop change.)
@@ -90,15 +93,15 @@ export default function Card({ card, children }) {
   }
 
   return (
-    <article className="game-card" aria-label={title || 'Card'}>
+    <article className={`game-card res-${res.id}`} aria-label={title || 'Card'}>
       <div className="gc-frame">
-        <span className="gc-orb gc-soul-top" title="SOUL cost">{soulCost}</span>
+        <span className="gc-orb gc-soul-top" title={`${res.label} cost`}>{soulCost}</span>
 
         <h3 className="gc-title"><span>{title || 'Untitled'}</span></h3>
 
-        <span className="gc-orb gc-affinity" title="Aether / Idol type">
-          <span className="gc-aether">{aetherType}</span>
-          <span className="gc-idol">{idolType}</span>
+        <span className={`gc-orb gc-affinity ${token?.kind || ''}`} title={token ? `${token.kind === 'villain' ? 'Villain' : 'Hero'}: ${token.name} · ${token.emotion}` : 'No token'}>
+          <span className="gc-aether">{token?.name || '—'}</span>
+          <span className="gc-idol">{token?.emotion || ''}</span>
         </span>
 
         <div className="gc-art">
@@ -123,7 +126,7 @@ export default function Card({ card, children }) {
 
         <div className="gc-desc">
           <FittedText text={description} />
-          <span className="gc-orb gc-soul-bottom" title="SOUL cost">{soulCost}</span>
+          <span className="gc-orb gc-soul-bottom" title={`${res.label} cost`}>{soulCost}</span>
         </div>
       </div>
       {children}

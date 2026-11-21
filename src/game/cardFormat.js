@@ -1,6 +1,7 @@
 // The AES Strikers card JSON format, used for bulk import.
 // This file is the single source of truth for the format guide, the validator, and the AI prompt.
-import { AETHER_TYPES, CARD_TYPES, IDOL_TYPES, STATUS_IDS, TYPE_ACTIONS } from '../firebase/db.js';
+import { CARD_TYPES, STATUS_IDS, TYPE_ACTIONS } from '../firebase/db.js';
+import { TOKENS, cardTokenId } from './tokens.js';
 
 export const FORMAT_ID = 'aes-strikers-cards';
 export const FORMAT_VERSION = 1;
@@ -32,10 +33,8 @@ export const CARD_FIELDS = [
     description: 'How many stacks of inflictStatus to apply (statuses still cap at their max).' },
   { key: 'inflictOn', kind: 'enum', required: false, default: 'hit', values: ['hit', 'direct'],
     description: '"hit": apply when the attack\'s damage lands. "direct": apply as soon as a direct attack on the player is declared.' },
-  { key: 'aetherType', kind: 'enum', required: true, values: AETHER_TYPES,
-    description: 'Elemental Aether affinity. Upper word in the top-right circle.' },
-  { key: 'idolType', kind: 'enum', required: true, values: IDOL_TYPES,
-    description: 'Emotional Idol affinity. Lower word in the top-right circle.' },
+  { key: 'token', kind: 'enum', required: true, values: TOKENS.map((t) => t.id),
+    description: `Hero/Villain token the card belongs to; only players with that token can play it. ${TOKENS.map((t) => `"${t.id}" = ${t.kind} ${t.name} (${t.emotion})`).join(', ')}.` },
   { key: 'description', kind: 'string', required: false, default: '', max: 300,
     description: 'Rules text shown in the description box. Use \\n for line breaks.' },
   { key: 'artUrl', kind: 'url', required: false, default: '',
@@ -53,8 +52,7 @@ export const EXAMPLE_FILE = {
       soulCost: 0,
       health: 50,
       damage: 0,
-      aetherType: 'Air',
-      idolType: 'Disgust',
+      token: 'linx',
       description: 'After 3 turns of this card being in play, return your "Armor Set" to an active state and discard this card.',
       artUrl: '',
     },
@@ -66,8 +64,7 @@ export const EXAMPLE_FILE = {
       health: 0,
       damage: 40,
       damagePlus: true,
-      aetherType: 'Fire',
-      idolType: 'Anger',
+      token: 'dremur',
       description: 'Deal 40 damage to a target with health.',
     },
   ],
@@ -83,6 +80,13 @@ const matchEnum = (value, values) =>
 export function validateCard(raw) {
   const errors = [];
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { card: null, errors: ['Entry is not an object.'] };
+  // Older files used aetherType/idolType instead of a token: map known pairs (e.g. Wind/Disgust -> linx)
+  if (!raw.token && (raw.aetherType !== undefined || raw.idolType !== undefined)) {
+    const { aetherType, idolType, ...rest } = raw;
+    const mapped = cardTokenId({ aetherType, idolType });
+    if (!mapped) errors.push(`"${aetherType}/${idolType}" doesn't match a token. Use "token" instead (${TOKENS.map((t) => t.id).join(', ')}).`);
+    raw = mapped ? { ...rest, token: mapped } : rest;
+  }
 
   const card = {};
   for (const f of CARD_FIELDS) {
@@ -179,9 +183,9 @@ GAME CONTEXT (to help you choose sensible values)
 - Attack cards with typeAction "Cast" have no health: always use 0 for their "health".
 - Cards with typeAction "Latent" are set face-down (SOUL paid then) and revealed later.
 - Shields absorb direct damage with their health; Body Armor reduces direct damage by its "block".
-- A player can only play cards matching their chosen Aether and Idol types.
+- Each player places one Hero or Villain token and can only play cards with that "token". Heroes earn SOUL; Villains earn SHADOW or DRIVE, which work exactly like SOUL. "soulCost" is paid in the token's resource.
 - SOUL is a resource players gain every turn (1 on their first turn, then 2, 3… up to 6 per turn; unspent SOUL is kept). Playing a card spends SOUL equal to its "soulCost". There are no SOUL cards.
-- Deck building: up to 6 copies per Attack card, 4 per Defend and Ability card, 3 per Incantation, 2 per Spatial, and only 1 Body Armor per deck. Body Armor that leaves play is exhausted, not reshuffled.
+- Deck building: up to 6 copies per Attack card, 4 per Defend and Ability card, 3 per Incantation (only 1 Incantation can be in play; it powers up over 3 of your turns, one "Turn N" effect at the end of each turn), 2 per Spatial, and only 1 Body Armor per deck. Body Armor that leaves play is exhausted, not reshuffled.
 - Players start with 400 health. Attacks are declared with "Attack" cards during the STRIKE! phase and deal their "damage".
 - The defender may COUNTER! with an "Attack" card; its damage is subtracted from the incoming damage.
 - Only cards with "health" above 0 can be targeted by attacks.

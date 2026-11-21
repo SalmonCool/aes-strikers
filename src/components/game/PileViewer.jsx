@@ -28,7 +28,8 @@ const groupByType = (cards) => {
 // Read-only list of a pile's cards.
 //   kind 'deck': sorted into a fixed arrangement, grouped by type
 //   kind 'discard': most recently discarded first
-export default function PileViewer({ kind, owner, cards = [], onClose }) {
+// onPick(card): pick mode (deck search) - clicking a card chooses it; pickNote explains the search.
+export default function PileViewer({ kind, owner, cards = [], onClose, onPick, pickNote, onSkip }) {
   const [hover, setHover] = useState(null);
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose();
@@ -39,14 +40,19 @@ export default function PileViewer({ kind, owner, cards = [], onClose }) {
   const isDeck = kind === 'deck';
   const shown = isDeck ? sortedDeck(cards) : [...cards].reverse();
   const title = `${owner} ${isDeck ? 'Deck' : 'Discard Pile'}`;
-  const note = isDeck
+  const note = onPick ? pickNote : isDeck
     ? 'Sorted by type and name. This is not the order you will draw in.'
     : 'Most recently discarded first.';
 
   const cardTile = (c, i) => (
     <div
       key={c.iid || `${c.id}-${i}`}
-      className="pile-card"
+      className={`pile-card ${onPick ? 'pickable' : ''}`}
+      role={onPick ? 'button' : undefined}
+      tabIndex={onPick ? 0 : undefined}
+      aria-label={onPick ? `Take ${c.title}` : undefined}
+      onClick={onPick ? () => onPick(c) : undefined}
+      onKeyDown={onPick ? (e) => (e.key === 'Enter' || e.key === ' ') && onPick(c) : undefined}
       onMouseEnter={(e) => setHover({ card: c, rect: hoverRect(e) })}
       onMouseLeave={() => setHover(null)}
     >
@@ -60,7 +66,10 @@ export default function PileViewer({ kind, owner, cards = [], onClose }) {
       <div className="panel modal modal-wide pile-viewer" role="dialog" aria-modal="true" aria-labelledby="pile-title">
         <div className="pile-head">
           <h2 id="pile-title">{title} <span className="pile-count">{cards.length}</span></h2>
-          <button className="ui-btn small" onClick={onClose}>Close</button>
+          <span className="pile-head-actions">
+            {onSkip && <button className="ui-btn small" onClick={onSkip}>Skip search</button>}
+            <button className="ui-btn small" onClick={onClose}>Close</button>
+          </span>
         </div>
         <p className="pile-note">{note}</p>
         {cards.length === 0 ? (

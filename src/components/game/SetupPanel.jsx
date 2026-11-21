@@ -1,36 +1,41 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AETHER_TYPES, IDOL_TYPES, createDeck, setActiveDeck } from '../../firebase/db.js';
+import { createDeck, setActiveDeck } from '../../firebase/db.js';
+import { TOKENS, cardTokenId, resourceOf, tokenLabel } from '../../game/tokens.js';
 import { STARTER_DECKS } from '../../data/cardSets.js';
 import useDecks from '../../hooks/useDecks.js';
 
-// Most common value of a field among non-SOUL cards (used to pre-select the deck's tokens).
-function mostCommon(cards, key) {
+// The token most of the deck's cards belong to (used to pre-select it).
+function mostCommonToken(cards) {
   const counts = {};
-  cards.filter((c) => c.cardType !== 'Soul').forEach((c) => { counts[c[key]] = (counts[c[key]] || 0) + 1; });
+  cards.filter((c) => c.cardType !== 'Soul').forEach((c) => {
+    const t = cardTokenId(c);
+    if (t) counts[t] = (counts[t] || 0) + 1;
+  });
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 }
 
-// Setup phase: choose a deck and your Aether + Idol tokens. Only cards matching both tokens can be played.
+// Setup phase: choose a deck and your Hero/Villain token. Only cards belonging to that token can be played.
 export default function SetupPanel({ uid, onReady }) {
   const { decks, activeDeckId, loading } = useDecks(uid);
-  const [picks, setPicks] = useState({}); // deckId -> { aether, idol }
+  const [picks, setPicks] = useState({}); // deckId -> token id
   const [busy, setBusy] = useState(false);
 
   const deck = decks?.find((d) => d.id === activeDeckId);
   const cards = useMemo(() => deck?.cards || [], [deck]);
-  const defaults = useMemo(() => ({ aether: mostCommon(cards, 'aetherType'), idol: mostCommon(cards, 'idolType') }), [cards]);
-  const aether = picks[deck?.id]?.aether ?? defaults.aether ?? AETHER_TYPES[0];
-  const idol = picks[deck?.id]?.idol ?? defaults.idol ?? IDOL_TYPES[0];
-  const setPick = (k, v) => setPicks((p) => ({ ...p, [deck.id]: { aether, idol, [k]: v } }));
+  const defaultToken = useMemo(() => mostCommonToken(cards), [cards]);
+  const token = picks[deck?.id] ?? defaultToken ?? TOKENS[0].id;
+  const setPick = (v) => setPicks((p) => ({ ...p, [deck.id]: v }));
 
-  const playable = cards.filter((c) => c.cardType !== 'Soul' && c.aetherType === aether && c.idolType === idol);
-  const unplayableTitles = [...new Set(cards.filter((c) => !playable.includes(c)).map((c) => `${c.title} (${c.aetherType}/${c.idolType})`))];
+  const playable = cards.filter((c) => c.cardType !== 'Soul' && cardTokenId(c) === token);
+  const unplayableTitles = [...new Set(cards.filter((c) => !playable.includes(c)).map((c) => `${c.title} (${tokenLabel(cardTokenId(c))})`))];
+  const heroes = TOKENS.filter((t) => t.kind === 'hero');
+  const villains = TOKENS.filter((t) => t.kind === 'villain');
 
   const ready = async () => {
     setBusy(true);
     try {
-      await onReady(cards, aether, idol);
+      await onReady(cards, token);
     } finally {
       setBusy(false);
     }
@@ -81,25 +86,24 @@ export default function SetupPanel({ uid, onReady }) {
             ) : (
               <>
                 <p className="setup-hint">
-                  Place your <strong>Aether</strong> and <strong>Idol</strong> tokens. They show your opponent what kind of deck you
-                  play, and you can only play cards that match both.
+                  Place your <strong>Hero</strong> or <strong>Villain</strong> token. It shows your opponent who you play, decides which
+                  cards you can play, and sets your resource: Heroes earn SOUL, Villains earn SHADOW or DRIVE.
                 </p>
-                <div className="field-row">
-                  <div className="field">
-                    <label htmlFor="setup-aether">Aether Token</label>
-                    <select id="setup-aether" className="ui-select" value={aether} onChange={(e) => setPick('aether', e.target.value)}>
-                      {AETHER_TYPES.map((t) => <option key={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="setup-idol">Idol Token</label>
-                    <select id="setup-idol" className="ui-select" value={idol} onChange={(e) => setPick('idol', e.target.value)}>
-                      {IDOL_TYPES.map((t) => <option key={t}>{t}</option>)}
-                    </select>
-                  </div>
+                <div className="field">
+                  <label htmlFor="setup-token">Token</label>
+                  <select id="setup-token" className="ui-select" value={token} onChange={(e) => setPick(e.target.value)}>
+                    <optgroup label="Heroes">
+                      {heroes.map((t) => <option key={t.id} value={t.id}>{tokenLabel(t.id)} — earns {resourceOf(t.id).label}</option>)}
+                    </optgroup>
+                    {villains.length > 0 && (
+                      <optgroup label="Villains">
+                        {villains.map((t) => <option key={t.id} value={t.id}>{tokenLabel(t.id)} — earns {resourceOf(t.id).label}</option>)}
+                      </optgroup>
+                    )}
+                  </select>
                 </div>
                 <p className={`ui-msg ${unplayableTitles.length ? 'error' : 'info'} setup-summary`}>
-                  {playable.length} of {cards.length} cards are playable with {aether}/{idol}.
+                  {playable.length} of {cards.length} cards are playable with {tokenLabel(token)}.
                   {unplayableTitles.length > 0 && ` Not playable: ${unplayableTitles.join(', ')}.`}
                 </p>
                 <div className="modal-actions">

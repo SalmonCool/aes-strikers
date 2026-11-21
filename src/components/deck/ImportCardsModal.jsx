@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { addCard } from '../../firebase/db.js';
 import { MAX_ART_UPLOAD_BYTES, compressImage } from '../../firebase/cardArt.js';
 import { parseImport } from '../../game/cardFormat.js';
+import { tokenLabel } from '../../game/tokens.js';
 
 // Downloads an art URL and compresses it. Throws a readable message on failure.
 async function fetchArt(url) {
@@ -111,7 +112,7 @@ export default function ImportCardsModal({ uid, onClose, onOpenGuide }) {
                   <span className="import-mark" aria-hidden="true">{e.card ? '✓' : '✕'}</span>
                   <span className="import-name">
                     {e.label}
-                    {e.card && <small>{e.card.cardType}: {e.card.typeAction} · {e.card.aetherType}/{e.card.idolType}{e.card.artUrl ? ' · art' : ''}</small>}
+                    {e.card && <small>{e.card.cardType}: {e.card.typeAction} · {tokenLabel(e.card.token)}{e.card.artUrl ? ' · art' : ''}</small>}
                     {e.errors.map((err) => <small key={err} className="import-err">{err}</small>)}
                   </span>
                 </li>

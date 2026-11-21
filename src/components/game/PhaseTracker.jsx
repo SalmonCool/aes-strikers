@@ -1,5 +1,6 @@
 import { PHASES, STARTING_HEALTH, STATUSES, SOUL_INCOME_CAP, opponentOf, soulIncome } from '../../game/engine.js';
 import PlayerIcon from '../PlayerIcon.jsx';
+import { resourceOf, tokenById } from '../../game/tokens.js';
 
 const SOUL_PIPS = 5; // minimum pips shown so the meter has a stable shape
 
@@ -13,6 +14,8 @@ function HealthBar({ player, uid, isMe, avatar }) {
   }
   const pct = Math.max(0, Math.min(100, (player.health / STARTING_HEALTH) * 100));
   const soul = player.soul || 0;
+  const res = resourceOf(player.token);
+  const token = tokenById(player.token);
   const nextGain = soulIncome((player.turnsTaken || 0) + 1);
   const st = { burn: 0, purge: 0, freeze: 0, frostbite: 0, stun: null, ...(player.status || {}) };
   const statuses = STATUSES.filter((d) => (d.id === 'stun' ? st.stun : st[d.id] > 0)).map((d) => ({
@@ -22,7 +25,7 @@ function HealthBar({ player, uid, isMe, avatar }) {
   return (
     <div className={`pt-player ${isMe ? 'me' : 'opp'}`} data-player-plate={uid}>
       <div className="pt-player-head">
-        <PlayerIcon src={avatar?.src} crop={avatar?.crop} name={player.name} soul={soul} status={st} size={46} />
+        <PlayerIcon src={avatar?.src} crop={avatar?.crop} name={player.name} soul={soul} resource={res.id} status={st} size={46} />
         <div className="pt-player-name">
           <span className="pt-name-text">{player.name}</span>{isMe && <span className="pt-you">You</span>}
         </div>
@@ -31,24 +34,24 @@ function HealthBar({ player, uid, isMe, avatar }) {
         <div className="pt-health-fill" style={{ width: `${pct}%` }} />
         <span className="pt-health-text">{player.health} / {STARTING_HEALTH}</span>
       </div>
-      <div className="pt-soul" title={`Banked SOUL, spent to play cards. +${nextGain} next turn (income grows by 1 each turn, up to ${SOUL_INCOME_CAP}). Unspent SOUL is kept.`}>
-        <span className="pt-soul-label">SOUL</span>
+      <div className={`pt-soul res-${res.id}`} title={`Banked ${res.label}, spent to play cards. +${nextGain} next turn (income grows by 1 each turn, up to ${SOUL_INCOME_CAP}). Unspent ${res.label} is kept.`}>
+        <span className="pt-soul-label">{res.label}</span>
         <span className="pt-soul-gems" aria-hidden="true">
           {Array.from({ length: Math.max(SOUL_PIPS, soul) }, (_, i) => (
             <span key={i} className={`pt-soul-pip ${i < soul ? 'on' : ''}`} />
           ))}
         </span>
-        <span className="pt-soul-value" aria-label={`${soul} SOUL available`}>{soul}</span>
+        <span className="pt-soul-value" aria-label={`${soul} ${res.label} available`}>{soul}</span>
       </div>
-      <div className="pt-soul-income">+{nextGain} SOUL next turn</div>
+      <div className={`pt-soul-income res-${res.id}`}>+{nextGain} {res.label} next turn</div>
       <div className="pt-counts">
         <span>Deck {player.deckCount}</span>
         <span>Hand {player.handCount}</span>
       </div>
-      {player.aetherType && (
+      {token && (
         <div className="pt-tokens">
-          <span className="pt-token aether">{player.aetherType}</span>
-          <span className="pt-token idol">{player.idolType}</span>
+          <span className={`pt-token ${token.kind}`}>{token.kind === 'villain' ? 'Villain' : 'Hero'} · {token.name}</span>
+          <span className="pt-token emotion">{token.emotion}</span>
         </div>
       )}
       {statuses.length > 0 && (

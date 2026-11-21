@@ -4,14 +4,16 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { avatarCropOf, avatarOf, joinSession, watchProfile, watchSession } from '../firebase/db.js';
 import {
   affinityOk, attackBreakdown, breakdownText, canAfford, canDetonate, chainLock, sacrificeOption, declareAttack, detonateLatent, declareCounter, dealOpeningHand, detonateStatus, drawForTurn,
-  endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, pickOpponentCards, playCounter, resolvePendingDiscards, resolveWithoutCounter, revealLatent,
+  endPhase, isAutoLatent, isSoulCard, opponentOf, placeCard, pickOpponentCards, pickFromDeck, playCounter, resolvePendingDiscards, resolveWithoutCounter, revealLatent,
   setupReady, soulCostFor, soulIncome, startReady, validZonesFor, watchHand, watchLog,
 } from '../game/engine.js';
 import { LATENT_ZONES, isCastCard, isLatentCard } from '../game/zones.js';
+import { cardTokenId, resourceOf, tokenLabel } from '../game/tokens.js';
 import PlayerMat from '../components/PlayerMat.jsx';
 import PhaseTracker from '../components/game/PhaseTracker.jsx';
 import EventLog from '../components/game/EventLog.jsx';
 import PileViewer from '../components/game/PileViewer.jsx';
+import ActiveEffects from '../components/game/ActiveEffects.jsx';
 import Hand from '../components/game/Hand.jsx';
 import CounterPrompt from '../components/game/CounterPrompt.jsx';
 import SetupPanel from '../components/game/SetupPanel.jsx';
@@ -142,6 +144,9 @@ export default function GameBoard() {
   // ----- Derived state -----
   const opp = game ? opponentOf(game, me) : null;
   const player = game?.players[me];
+  const myRes = resourceOf(player?.token);
+  // Incantation deck search available this turn (e.g. Maxees! Turn 2)
+  const deckPick = player?.deckPick?.turnNo === game?.turnNo ? player.deckPick : null;
 
   // Player icons come from each player's profile (kept off the game doc so it stays small)
   const [avatars, setAvatars] = useState({});
@@ -271,14 +276,14 @@ export default function GameBoard() {
   if (selectedCard && sel.from === 'hand') {
     const lock = chainLock(game, me, selectedCard);
     if (lock) selectionHint = `"${selectedCard.title}" can't be played while "${lock.title}" is in play.`;
-    else if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" is ${selectedCard.aetherType}/${selectedCard.idolType} — it doesn't match your ${player.aetherType}/${player.idolType} tokens.`;
-    else if (!canAfford(game, me, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${soulCostFor(game, me, selectedCard)} SOUL. You have ${player?.soul || 0}.`;
+    else if (!affinityOk(player, selectedCard)) selectionHint = `"${selectedCard.title}" belongs to ${tokenLabel(cardTokenId(selectedCard))} — it doesn't match your ${tokenLabel(player.token)} token.`;
+    else if (!canAfford(game, me, selectedCard)) selectionHint = `"${selectedCard.title}" costs ${soulCostFor(game, me, selectedCard)} ${myRes.label}. You have ${player?.soul || 0}.`;
     else if (canPlaceNow && isCastCard(selectedCard)) selectionHint = `${selectedCard.cardType} cards are cast during STRIKE! or COUNTER!, not equipped.`;
     else if (canPlaceNow && placeZones.length === 0) selectionHint = `No open zone for "${selectedCard.title}".`;
     else if (canPlaceNow && isLatentCard(selectedCard)) {
       selectionHint = placeZones.some((z) => myBoard[z])
-        ? 'Latent card: place it face-down in a glowing slot, or click an orange slot to replace that Latent card (the old one is discarded). SOUL is paid now.'
-        : 'Latent card: place it face-down in a glowing Latent slot. SOUL is paid now.';
+        ? `Latent card: place it face-down in a glowing slot, or click an orange slot to replace that Latent card (the old one is discarded). ${myRes.label} is paid now.`
+        : `Latent card: place it face-down in a glowing Latent slot. ${myRes.label} is paid now.`;
     } else if (canPlaceNow && placeZones.some((z) => myBoard[z])) {
       selectionHint = `${selectedCard.cardType}: place it in an empty slot, or click an orange slot to replace that card (the old one is discarded).`;
     }
@@ -345,6 +350,9 @@ export default function GameBoard() {
     hint = attack.status === 'countering' ? `${names[attack.defender]} declared COUNTER! and is choosing a card…` : '';
   } else if (myTurn && game.phase === 'equip') {
     hint = 'Equip phase: select a card, then click a glowing zone. Latent cards go face-down.';
+    if (deckPick) {
+      buttons.push(<button key="search" className="ui-btn" onClick={() => setPile({ kind: 'deck', uid: me, pick: true })}>Search deck ({deckPick.source})</button>);
+    }
     buttons.push(<button key="next" className="ui-btn primary" onClick={() => run(endPhase(sessionId, me))}>Go to STRIKE!</button>);
   } else if (inMyStrike) {
     hint = targeting
@@ -384,6 +392,11 @@ export default function GameBoard() {
           owner={pile.uid === me ? 'Your' : `${names[pile.uid]}'s`}
           cards={pile.kind === 'deck' ? hand.deck : game.discard[pile.uid] || []}
           onClose={() => setPile(null)}
+          {...(pile.pick && deckPick ? {
+            pickNote: `"${deckPick.source}": choose 1 card to add to your hand. Your deck is reshuffled afterwards.`,
+            onPick: (c) => { run(pickFromDeck(sessionId, me, c.iid)); setPile(null); },
+            onSkip: () => { run(pickFromDeck(sessionId, me, null)); setPile(null); },
+          } : {})}
         />
       )}
       <aside className="arena-side left">
@@ -403,7 +416,7 @@ export default function GameBoard() {
             owner={opp}
             playerName={oppName}
             board={opp ? game.board[opp] : {}}
-            tokens={opp ? { aether: game.players[opp].aetherType, idol: game.players[opp].idolType } : {}}
+            token={opp ? game.players[opp].token : null}
             deckCount={opp ? game.players[opp].deckCount : 0}
             discard={opp ? game.discard[opp] : []}
             exhausted={opp ? game.exhausted?.[opp] : []}
@@ -421,7 +434,7 @@ export default function GameBoard() {
             playerName={names[me]}
             board={myBoard}
             latentCards={hand.latent}
-            tokens={{ aether: player?.aetherType, idol: player?.idolType }}
+            token={player?.token}
             deckCount={hand.deck.length}
             discard={game.discard[me]}
             exhausted={game.exhausted?.[me]}
@@ -435,12 +448,13 @@ export default function GameBoard() {
         </div>
 
         <div className="action-bar">
-          <span className="soul-count" title={`Banked SOUL. You gain ${soulIncome((player?.turnsTaken || 0) + 1)} at the start of your next turn (up to 6 per turn). Unspent SOUL is kept.`}>
-            <span className="soul-gem" aria-hidden="true" />SOUL {player?.soul || 0}
+          <span className={`soul-count res-${myRes.id}`} title={`Banked ${myRes.label}. You gain ${soulIncome((player?.turnsTaken || 0) + 1)} at the start of your next turn (up to 6 per turn). Unspent ${myRes.label} is kept.`}>
+            <span className="soul-gem" aria-hidden="true" />{myRes.label} {player?.soul || 0}
           </span>
           <p className="action-hint">{selectionHint || hint}</p>
           <div className="action-buttons">{buttons}</div>
         </div>
+        {game.phase !== 'setup' && <ActiveEffects game={game} me={me} />}
         <Hand
           cards={hand.hand}
           selected={sel?.from === 'hand' ? sel.iid : null}
@@ -472,7 +486,7 @@ export default function GameBoard() {
       )}
 
       {game.phase === 'setup' && !player?.ready && (
-        <SetupPanel uid={me} onReady={(cards, aether, idol) => setupReady(sessionId, me, cards, aether, idol).catch((e) => setToast(e.message))} />
+        <SetupPanel uid={me} onReady={(cards, token) => setupReady(sessionId, me, cards, token).catch((e) => setToast(e.message))} />
       )}
 
       <TurnBanner game={game} me={me} />

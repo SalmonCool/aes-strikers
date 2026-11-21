@@ -238,3 +238,20 @@
   .gc-damage-pop { animation: dmg-fade 1.6s linear forwards; }
 }
 @keyframes dmg-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---------- Resource themes on cost orbs (Villains: SHADOW purple-black, DRIVE deep red) ---------- */
+.game-card.res-shadow .gc-soul-top,
+.game-card.res-shadow .gc-soul-bottom {
+  background: radial-gradient(circle, #0c0216 55%, #2a0b45 100%);
+  border-color: #9a5cff;
+  box-shadow: 0 0 0 0.6cqw rgba(0, 0, 0, 0.8), 0 0 3cqw rgba(154, 92, 255, 0.75), inset 0 0 2cqw rgba(154, 92, 255, 0.35);
+  text-shadow: 0 0 1.5cqw rgba(200, 150, 255, 0.9);
+}
+.game-card.res-drive .gc-soul-top,
+.game-card.res-drive .gc-soul-bottom {
+  background: radial-gradient(circle, #1a0004 55%, #4a0610 100%);
+  border-color: #e0243a;
+  box-shadow: 0 0 0 0.6cqw rgba(0, 0, 0, 0.8), 0 0 3cqw rgba(224, 36, 58, 0.75), inset 0 0 2cqw rgba(224, 36, 58, 0.35);
+  text-shadow: 0 0 1.5cqw rgba(255, 120, 120, 0.9);
+}
+.gc-affinity.villain .gc-aether { color: #dcc4ff; border-bottom-color: rgba(200, 160, 255, 0.7); }

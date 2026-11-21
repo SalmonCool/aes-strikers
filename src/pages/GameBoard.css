@@ -907,3 +907,117 @@
 .pile-group h3 { margin: 0 0 8px; font-size: 1rem; }
 .pile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
 .pile-card { container-type: inline-size; cursor: default; }
+
+/* ---------- Resource themes (SOUL / SHADOW / DRIVE) ----------
+   Put .res-<id> on a container; meters, gems and labels inside pick up its colours. */
+.res-soul { --res: #7ff7ff; --res-rgb: 127, 247, 255; --res-deep: #0a3d6b; }
+.res-shadow { --res: #c08cff; --res-rgb: 150, 80, 230; --res-deep: #12041f; }
+.res-drive { --res: #ff5c68; --res-rgb: 220, 30, 50; --res-deep: #3a0009; }
+
+.soul-count[class*='res-'] { border-color: rgba(var(--res-rgb), 0.55); color: var(--res); }
+.pt-soul[class*='res-'] .pt-soul-label { color: var(--res); }
+.pt-soul[class*='res-'] .pt-soul-pip { border-color: rgba(var(--res-rgb), 0.45); }
+.pt-soul[class*='res-'] .pt-soul-value { text-shadow: 0 0 8px rgba(var(--res-rgb), 0.75); }
+/* Lit gems shimmer: a bright glint slides across a deep-to-bright gradient */
+.soul-count[class*='res-'] .soul-gem,
+.pt-soul[class*='res-'] .pt-soul-pip.on {
+  border-color: var(--res);
+  background: linear-gradient(135deg, var(--res-deep) 0%, var(--res) 45%, #fff 55%, var(--res) 65%, var(--res-deep) 100%);
+  background-size: 300% 300%;
+  box-shadow: 0 0 8px rgba(var(--res-rgb), 0.9);
+  animation: res-shimmer 3.2s linear infinite;
+}
+.pt-soul-income[class*='res-'] { color: rgba(var(--res-rgb), 0.75); }
+@keyframes res-shimmer {
+  from { background-position: 100% 100%; }
+  to { background-position: 0% 0%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .soul-count[class*='res-'] .soul-gem,
+  .pt-soul[class*='res-'] .pt-soul-pip.on { animation: none; background-position: 50% 50%; }
+}
+
+/* Hero / Villain token on the board */
+.token.villain { border-color: #b07cff; box-shadow: 0 0 2cqw rgba(176, 124, 255, 0.5), inset 0 0 1.5cqw rgba(176, 124, 255, 0.25); }
+.token-emotion { font-size: 1.1cqw; color: rgba(255, 255, 255, 0.75); }
+.pt-token.villain { border-color: #b07cff; color: #dcc4ff; }
+
+/* ---------- Effects strip: what's buffing / hindering you (above the hand) ---------- */
+.fx-strip {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(3, 10, 30, 0.45);
+  border: 1px solid rgba(0, 229, 229, 0.12);
+}
+.fx-strip.collapsed { width: auto; align-self: flex-start; }
+.fx-strip-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.75);
+  font: inherit;
+  cursor: pointer;
+}
+.fx-strip-toggle:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; border-radius: 6px; }
+.fx-strip-title { font-family: var(--font-display); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; }
+.fx-count { min-width: 1.5em; padding: 0 5px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; text-align: center; color: var(--black); }
+.fx-count.buff { background: #6ff0c8; }
+.fx-count.hinder { background: #ff7a8e; }
+.fx-count.pending { background: #ffd76a; }
+.fx-caret { font-size: 0.7rem; opacity: 0.7; }
+
+.fx-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 3.6em; /* about two rows, then scroll */
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  scrollbar-width: thin;
+}
+.fx-chip {
+  --fx: 111, 240, 200;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 340px;
+  padding: 2px 10px 2px 7px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.88);
+  background: linear-gradient(90deg, rgba(var(--fx), 0.16), rgba(var(--fx), 0.05));
+  border: 1px solid rgba(var(--fx), 0.35);
+  white-space: nowrap;
+  animation: fx-in 0.45s ease-out both;
+}
+.fx-chip.hinder { --fx: 255, 110, 130; }
+.fx-chip.pending { --fx: 255, 215, 106; }
+.fx-chip.idle { --fx: 160, 170, 190; opacity: 0.6; }
+.fx-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--fx)); box-shadow: 0 0 6px rgba(var(--fx), 0.9); }
+.fx-chip.pending .fx-dot { background: transparent; border: 1.5px solid rgb(var(--fx)); box-shadow: none; }
+.fx-src { font-weight: 700; color: rgb(var(--fx)); }
+.fx-text { overflow: hidden; text-overflow: ellipsis; }
+@keyframes fx-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .fx-chip { animation: none; } }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- Incantation tiers on the board ---------- */
+.incant-tiers { display: inline-flex; align-items: center; gap: 0.6cqw; }
+.incant-pip { width: 1cqw; height: 1cqw; border-radius: 50%; border: 0.18cqw solid #ffd76a; }
+.incant-pip.on { background: #ffd76a; box-shadow: 0 0 1cqw rgba(255, 215, 106, 0.9); }
+.pile-head-actions { display: inline-flex; gap: 8px; }
+.pile-card.pickable { cursor: pointer; border-radius: 6%; transition: transform 0.15s, box-shadow 0.15s; }
+.pile-card.pickable:hover, .pile-card.pickable:focus-visible { transform: translateY(-3px); box-shadow: 0 0 14px rgba(255, 215, 106, 0.75); outline: none; }

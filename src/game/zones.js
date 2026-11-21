@@ -3,8 +3,7 @@
 // The "strike" area (the big "Strike!" space) is where Attack and Defend cards are shown when cast.
 export const ZONES = [
   { id: 'spatial', label: 'Spatial', col: 7, row: 1 },
-  { id: 'aether', label: 'Aether', col: 8, row: 1 },
-  { id: 'idol', label: 'Idol', col: 9, row: 1 },
+  { id: 'token', label: 'Token', col: 8, row: 1, span: 2 },
 
   { id: 'latent-1', label: 'Latent', col: 1, row: 2 },
   { id: 'strike', label: 'Strike!', col: 2, row: 2, span: 3 },
@@ -23,7 +22,8 @@ export const ZONES = [
 export const zoneLabel = (id) => ({ 'ability-1': 'Ability Slot 1', 'ability-2': 'Ability Slot 2', 'latent-1': 'Latent Slot 1', 'latent-2': 'Latent Slot 2' })[id]
   || ZONES.find((z) => z.id === id)?.label || id;
 
-export const MAX_INCANTATIONS = 3;
+// One Incantation in play at a time: it powers up over three of your turns (see engine EFFECTS)
+export const MAX_INCANTATIONS = 1;
 export const LATENT_ZONES = ['latent-1', 'latent-2'];
 export const ABILITY_ZONES = ['ability-1', 'ability-2'];
 

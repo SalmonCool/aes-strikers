@@ -10,7 +10,8 @@ const BLOCK = {
   'Fly! Illy!': 40, 'Summon Illy!': 40, 'Chain Of Command-Illy': 20, 'Diamond Carapace': 80, Refraction: 40, 'Hidden Carapace': 20,
 };
 
-const card = (deckId, aetherType, idolType) => (index, title, cardType, typeAction, soulCost, health, damage, description, extra = {}) => ({
+// token: the Hero/Villain token the card belongs to (see game/tokens.js).
+const card = (deckId, token) => (index, title, cardType, typeAction, soulCost, health, damage, description, extra = {}) => ({
   id: `${deckId}-${String(index).padStart(2, '0')}`,
   title,
   cardType,
@@ -19,8 +20,7 @@ const card = (deckId, aetherType, idolType) => (index, title, cardType, typeActi
   health,
   damage,
   block: BLOCK[title] || 0,
-  aetherType,
-  idolType,
+  token,
   description,
   healthPlus: false,
   damagePlus: false,
@@ -32,8 +32,8 @@ const card = (deckId, aetherType, idolType) => (index, title, cardType, typeActi
   ...extra,
 });
 
-const L = card('default-linx', 'Wind', 'Disgust');
-const D = card('default-dremur', 'Earth', 'Happiness');
+const L = card('default-linx', 'linx');
+const D = card('default-dremur', 'dremur');
 
 const LINX_CARDS = [
   L(1, 'Just a Touch', 'Ability', 'Equip', 0, 0, 0,
@@ -62,12 +62,10 @@ const LINX_CARDS = [
     'Nail: When this card is in play, reduce the SOUL! cost of attacks by 1. When this card is discarded, deal 20 damage directly. This damage ignores damage reduction.\n-Detonate: On the caster\'s STRIKE! phase they can choose to discard this card. If this is done, deal 40 damage directly. This damage cannot be boosted or negated.'),
   L(13, 'Veil Piercer', 'Ability', 'Equip', 2, 50, 40,
     'Discard all "Nail" cards in play, increase the damage of this card by 20 for each card discarded in this way. Deal 40 damage and apply one stack of Purge to the opponent for each "Nail" discarded in this way.', { damagePlus: true }),
-  L(14, 'MEENOS!', 'Incantation', '', 0, 50, 0,
-    'Retain cards that would otherwise be discarded.\n\nOnly 1 Incantation can be played per turn.'),
-  L(15, 'GRANT ME!', 'Incantation', '', 0, 50, 0,
-    'Only 1 Incantation may be played per turn.'),
-  L(16, 'AGILITY!', 'Incantation', '', 0, 50, 0,
-    'Draw additional cards on your draw phase equal to the amount of "Nail" cards in play.\n\nOnly 1 Incantation may be played per turn.'),
+  // Incantations power up over the owner's turns (one tier at the end of each turn, starting the turn it's played).
+  // Ids 15/16 (the old separate "GRANT ME!" / "AGILITY!" cards) are retired; saved decks simply skip them.
+  L(14, 'MEENOS! Grant Me Agility!', 'Incantation', '', 0, 0, 0,
+    'Turn 1: Prevent cards that would be discarded by the effect of cards or stun.\n\nTurn 2: Draw additional cards on your draw phase equal to the amount of "Nail" cards in play.\n\nTurn 3: During the "STRIKE" phase, apply an unblockable 10 damage to the opponent with every strike declared.\n\nAfter each turn these effects become active they remain active.'),
   L(17, 'Permeable Paws', 'Weapon', 'Equip', 0, 50, 0,
     'When equipped allows the user to ignore the damage reduction effect of the opponents Armor Set.'),
   L(18, 'Instinct', 'Shield', 'Equip', 0, 80, 0,
@@ -117,19 +115,16 @@ const DREMUR_CARDS = [
     { inflictStatus: 'stun', inflictOn: 'direct' }),
   D(16, 'Chain of Command: Gravity', 'Spatial', '', 0, 0, 0,
     'Any player suffering the "Stun" status loses an extra card on dice roll.'),
-  D(17, 'Maxees!', 'Incantation', '', 0, 0, 0,
-    'Reduce the SOUL! cost of all cards played by the player by 1.\n\nIncantations can only be played once per turn.'),
-  D(18, 'Grant Me!', 'Incantation', '', 0, 0, 0,
-    'Incantations can only be played once per turn.'),
-  D(19, 'STRENGTH!', 'Incantation', '', 0, 0, 40,
-    'Strength: Increase damage of all attacks declared by 40.\n\nIncantations can only be played once per turn.'),
+  // Ids 18/19 (the old separate "Grant Me!" / "STRENGTH!" cards) are retired; saved decks simply skip them.
+  D(17, 'Maxees! Grant me Strength!', 'Incantation', '', 0, 0, 0,
+    'Turn 1: Reduce the SOUL! cost of all cards played by the player by 1.\n\nTurn 2: During the DRAW phase search your deck for 1 card and add it to your hand. Reshuffle.\n\nTurn 3: Increase damage of all attacks declared by 40.\n\nAfter each turn these effects become active they remain active.'),
   D(20, 'Tilled Earth', 'Spatial', '', 0, 0, 0,
     'Each player draws 1 additional card during their draw phase.'),
 ];
 
 export const CARD_SETS = [
-  { id: 'set-linx', name: 'Linx, Veil Walker', builtIn: true, aetherType: 'Wind', idolType: 'Disgust', cards: LINX_CARDS },
-  { id: 'set-dremur', name: 'Dremur', builtIn: true, aetherType: 'Earth', idolType: 'Happiness', cards: DREMUR_CARDS },
+  { id: 'set-linx', name: 'Linx, Veil Walker', builtIn: true, token: 'linx', cards: LINX_CARDS },
+  { id: 'set-dremur', name: 'Dremur', builtIn: true, token: 'dremur', cards: DREMUR_CARDS },
 ];
 
 // Example / starter decks: two 30-card decks per set, each attack-forward but built around a different
@@ -140,11 +135,11 @@ const STARTER_RECIPES = {
       name: 'Nail Barrage',
       blurb: 'Flood the board with Nails: cheaper attacks, huge Springboards, then cash them in with Veil Piercer and Detonate.',
       cards: {
-        Springboard: 6, Nail: 5, Strikethrough: 3, // 14 attacks
+        Springboard: 6, Nail: 5, Strikethrough: 4, // 15 attacks
         'Just a Touch': 1, Skewer: 1, 'Veil Piercer': 1,
-        Reflex: 2, 'Flatside Nail': 2, 'Brace For Impact!': 2,
+        Reflex: 3, 'Flatside Nail': 2, 'Brace For Impact!': 2,
         Purrgatory: 1,
-        'MEENOS!': 1, 'GRANT ME!': 1, 'AGILITY!': 1,
+        'MEENOS! Grant Me Agility!': 1,
         'Permeable Paws': 1, Instinct: 1, "Prowler's Cloak": 1,
       },
     },
@@ -152,11 +147,11 @@ const STARTER_RECIPES = {
       name: 'Veil Tempo',
       blurb: 'Punish every COUNTER! with Strikethrough, refund SOUL to keep swinging, and out-draw your opponent with Start! Hunt!.',
       cards: {
-        Strikethrough: 5, Springboard: 4, Nail: 3, // 12 attacks
+        Strikethrough: 6, Springboard: 4, Nail: 3, // 13 attacks
         'Instant Reposition': 1, 'Start! Hunt!': 1, 'Veil Piercer': 1, 'Just a Touch': 1,
-        Translucence: 2, Reflex: 2, 'Brace For Impact!': 1, 'Flatside Nail': 1,
+        Translucence: 2, Reflex: 3, 'Brace For Impact!': 1, 'Flatside Nail': 1,
         'Illusionary Wind': 2,
-        'MEENOS!': 1, 'GRANT ME!': 1, 'AGILITY!': 1,
+        'MEENOS! Grant Me Agility!': 1,
         'Permeable Paws': 1, Instinct: 1, "Prowler's Cloak": 1,
       },
     },
@@ -164,13 +159,13 @@ const STARTER_RECIPES = {
   'set-dremur': [
     {
       name: 'Inty Onslaught',
-      blurb: 'Pick the Inty side: Summon Inty strikes every turn, Chain of Command-Inty and STRENGTH! pile on damage, Crashing Mandibles cracks armor.',
+      blurb: 'Pick the Inty side: Summon Inty strikes every turn, Chain of Command-Inty and Maxees! pile on damage, Crashing Mandibles cracks armor.',
       cards: {
-        'Reckless Lunge': 4, 'Churning Constriction': 4, 'Summon Inty': 3, 'Crashing Mandibles': 4, // 15 attacks
+        'Reckless Lunge': 4, 'Churning Constriction': 5, 'Summon Inty': 3, 'Crashing Mandibles': 5, // 17 attacks
         'Chain of Command-Inty': 1, 'Rending Carapace': 1,
         'Diamond Carapace': 3, Refraction: 3,
         'Chain of Command: Gravity': 1,
-        'Maxees!': 1, 'Grant Me!': 1, 'STRENGTH!': 1,
+        'Maxees! Grant me Strength!': 1,
         'Wand Of Command': 1, 'Little Buddy': 1, 'Hidden Carapace': 1,
       },
     },
@@ -180,9 +175,9 @@ const STARTER_RECIPES = {
       cards: {
         'Reckless Lunge': 5, 'Churning Constriction': 5, 'Crashing Mandibles': 3, // 13 attacks
         'Chain Of Command-Illy': 1, 'Regenerating Carapace': 1,
-        'Summon Illy!': 3, 'Fly! Illy!': 3, 'Diamond Carapace': 2,
+        'Summon Illy!': 3, 'Fly! Illy!': 4, 'Diamond Carapace': 3,
         'Chain of Command: Gravity': 1,
-        'Maxees!': 1, 'Grant Me!': 1, 'STRENGTH!': 1,
+        'Maxees! Grant me Strength!': 1,
         'Wand Of Command': 1, 'Little Buddy': 1, 'Hidden Carapace': 1,
       },
     },

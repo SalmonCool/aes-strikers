@@ -4,7 +4,7 @@
 //   phase: 'setup' | 'start' | 'draw' | 'equip' | 'strike' | 'over'
 //   round, turnNo (increments every turn), turn (uid), first (uid), winner (uid|null)
 //   players: { [uid]: { name, health, ready, dealt, deckCount, handCount, soul, turnsTaken,
-//                       aetherType, idolType, incantationTurn, status } }
+//                       token, incantationTurn, status } }
 //     soul: banked SOUL. Each of the player's turns adds min(turnsTaken, SOUL_INCOME_CAP); unspent SOUL carries over.
 //     status: { burn 0-3, purge 0-3, freeze 0-2, frostbite 0-1, stun: null | { by } }
 //   board:   { [uid]: { [zoneId]: card | { faceDown: true } , incantation: card[] } }
@@ -19,6 +19,7 @@
 import { collection, doc, limitToLast, onSnapshot, orderBy, query, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { ABILITY_ZONES, LATENT_ZONES, MAX_INCANTATIONS, PLAYABLE_ZONES, hasNoHealth, isLatentCard, zoneAccepts, zoneLabel } from './zones.js';
+import { cardTokenId, resourceOf, tokenById, tokenLabel } from './tokens.js';
 
 export const STARTING_HEALTH = 400;
 export const OPENING_HAND = 6;
@@ -63,8 +64,7 @@ export const newPlayer = (name) => ({
   handCount: 0,
   soul: 0,
   turnsTaken: 0,
-  aetherType: null,
-  idolType: null,
+  token: null, // Hero/Villain token (game/tokens.js): decides playable cards and the resource earned
   incantationTurn: -1,
   status: emptyStatus(),
 });
@@ -108,14 +108,18 @@ export const isSoulCard = (c) => c.cardType === 'Soul';
 export const soulCostFor = (game, uid, card) => {
   let cost = card.soulCost || 0;
   if (card.cardType === 'Attack') cost -= latentPassiveTotal(game, uid, 'attack-discount');
-  cost -= incantationTotal(game, uid, 'cost-discount'); // awakened "Maxees!"
+  cost -= incantationTotal(game, uid, 'cost-discount'); // Incantation tier (e.g. Maxees! Turn 1)
   return Math.max(0, cost);
 };
 export const canAfford = (game, uid, card) => (game?.players[uid]?.soul || 0) >= soulCostFor(game, uid, card);
 
-// A card can only be played if it matches the player's Aether and Idol tokens (SOUL cards are neutral).
+// A card can only be played if it belongs to the player's token (legacy SOUL cards are neutral).
 export const affinityOk = (player, card) =>
-  isSoulCard(card) || (card.aetherType === player?.aetherType && card.idolType === player?.idolType);
+  isSoulCard(card) || (Boolean(playerToken(player)) && cardTokenId(card) === playerToken(player));
+// A player's token; arenas from before tokens stored an Aether/Idol pair instead, which maps the same way.
+export const playerToken = (player) => player?.token || cardTokenId(player);
+// The resource label ("SOUL", "SHADOW", "DRIVE") uid earns.
+export const resourceLabel = (game, uid) => resourceOf(game?.players?.[uid]?.token).label;
 
 // The value a card contributes when played as a COUNTER!: Defend cards block, Attack cards strike back.
 export const counterValue = (card) => (card.cardType === 'Defend' ? card.block || 0 : card.damage || 0);
@@ -177,8 +181,7 @@ const toPlayable = (c) => ({
   baseBlock: Number(c.block) || 0,
   healthPlus: Boolean(c.healthPlus),
   damagePlus: Boolean(c.damagePlus),
-  aetherType: c.aetherType,
-  idolType: c.idolType,
+  token: cardTokenId(c),
   art: c.art || null,
   artCrop: c.artCrop || null,
   inflictStatus: c.inflictStatus || '',
@@ -272,13 +275,13 @@ const bothReady = (game) =>
 function paySoul(ctx, card) {
   const cost = soulCostFor(ctx.game, ctx.uid, card);
   const discount = (card.soulCost || 0) - cost;
-  if (discount > 0) ctx.log(`"${card.title}" costs ${discount} less SOUL thanks to ongoing effects.`);
+  if (discount > 0) ctx.log(`"${card.title}" costs ${discount} less ${resourceLabel(ctx.game, ctx.uid)} thanks to ongoing effects.`);
   if (cost <= 0) return;
   const p = ctx.game.players[ctx.uid];
   const available = p.soul || 0;
-  if (available < cost) fail(`"${card.title}" costs ${cost} SOUL, but you only have ${available}.`);
+  if (available < cost) fail(`"${card.title}" costs ${cost} ${resourceLabel(ctx.game, ctx.uid)}, but you only have ${available}.`);
   p.soul = available - cost;
-  ctx.log(`${ctx.name(ctx.uid)} spent ${cost} SOUL on "${card.title}" (${p.soul} left).`);
+  ctx.log(`${ctx.name(ctx.uid)} spent ${cost} ${resourceLabel(ctx.game, ctx.uid)} on "${card.title}" (${p.soul} left).`);
 }
 
 // Start of a player's turn: SOUL income ramps 1, 2, 3… per turn, capped at SOUL_INCOME_CAP. Unspent SOUL is kept.
@@ -287,13 +290,13 @@ function gainSoul(ctx, uid) {
   p.turnsTaken = (p.turnsTaken || 0) + 1;
   const gain = soulIncome(p.turnsTaken);
   p.soul = (p.soul || 0) + gain;
-  ctx.log(`${ctx.name(uid)} gains ${gain} SOUL (${p.soul} banked).`);
+  ctx.log(`${ctx.name(uid)} gains ${gain} ${resourceLabel(ctx.game, uid)} (${p.soul} banked).`);
 }
 
 function requireAffinity(ctx, card) {
   const p = ctx.game.players[ctx.uid];
   if (!affinityOk(p, card)) {
-    fail(`"${card.title}" is ${card.aetherType}/${card.idolType}, but your tokens are ${p.aetherType}/${p.idolType}.`);
+    fail(`"${card.title}" belongs to ${tokenLabel(cardTokenId(card))}, but your token is ${tokenLabel(p.token)}.`);
   }
 }
 
@@ -353,13 +356,13 @@ function checkDefeat(ctx) {
 }
 
 // ---------- Setup ----------
-// Player picks a deck plus their Aether and Idol tokens; the whole deck is shuffled.
-export function setupReady(sid, uid, deckCards, aetherType, idolType) {
+// Player picks a deck plus their Hero/Villain token; the whole deck is shuffled.
+export function setupReady(sid, uid, deckCards, token) {
   return act(sid, uid, (ctx) => {
     const { game } = ctx;
     if (game.phase !== 'setup') fail('Setup is already over.');
     if (game.players[uid].ready) return false;
-    if (!aetherType || !idolType) fail('Choose your Aether and Idol tokens.');
+    if (!tokenById(token)) fail('Choose your token.');
     const playable = deckCards.filter((c) => !isSoulCard(c)); // SOUL is no longer a deck card
     if (playable.length === 0) fail('That deck has no cards.');
 
@@ -368,8 +371,9 @@ export function setupReady(sid, uid, deckCards, aetherType, idolType) {
     game.board[uid] = { incantation: [] };
     game.discard[uid] = [];
     (game.exhausted ||= {})[uid] = [];
-    Object.assign(game.players[uid], { aetherType, idolType, ready: true, status: emptyStatus() });
-    ctx.log(`${ctx.name(uid)} set their tokens — Aether: ${aetherType}, Idol: ${idolType} — and shuffled a ${deck.length}-card deck.`);
+    Object.assign(game.players[uid], { token, ready: true, status: emptyStatus() });
+    const t = tokenById(token);
+    ctx.log(`${ctx.name(uid)} placed the ${t.kind === 'villain' ? 'Villain' : 'Hero'} token ${tokenLabel(token)} (earns ${resourceOf(token).label}) and shuffled a ${deck.length}-card deck.`);
 
     if (bothReady(game)) {
       game.phase = 'start';
@@ -458,11 +462,9 @@ export function placeCard(sid, uid, iid, zoneId) {
       ctx.log(`${ctx.name(uid)} set a face-down Latent card in ${zoneLabel(zoneId)}.`);
       checkDefeat(ctx); // a replaced "Nail" strikes on discard
     } else if (zoneId === 'incantation') {
-      board.incantation = [...(board.incantation || []), card];
+      board.incantation = [...(board.incantation || []), { ...card, tier: 0, playedTurn: game.turnNo }];
       game.players[uid].incantationTurn = game.turnNo;
-      const n = board.incantation.length;
-      ctx.log(`${ctx.name(uid)} played Incantation "${card.title}" (${n}/${MAX_INCANTATIONS}).`);
-      if (n === MAX_INCANTATIONS) ctx.log(`${ctx.name(uid)}'s Incantations awaken — all ${MAX_INCANTATIONS} are now in effect!`, 'phase');
+      ctx.log(`${ctx.name(uid)} played Incantation "${card.title}". Its Turn 1 effect begins at the end of this turn.`);
     } else {
       const replaced = board[zoneId];
       if (replaced) {
@@ -524,6 +526,15 @@ export function detonateLatent(sid, uid, zoneId) {
 
 // ---------- Turn flow ----------
 function endTurnEffects(ctx, uid) {
+  // Incantations: one more tier turns on at the end of each of the owner's turns
+  (ctx.game.board[uid]?.incantation || []).forEach((c) => {
+    const tiers = effectOf(c).incantationTiers || [];
+    if ((c.tier || 0) >= tiers.length) return;
+    c.tier = (c.tier || 0) + 1;
+    const fx = tiers[c.tier - 1];
+    ctx.log(`"${c.title}" — Turn ${c.tier} is now active: ${fx.text}.`, 'phase');
+  });
+  delete ctx.game.players[uid].deckPick;
   const s = ensureStatus(ctx.game, uid);
   if (s.purge > 0 && (s.burn || s.freeze || s.frostbite || s.stun)) {
     Object.assign(s, { burn: 0, freeze: 0, frostbite: 0, stun: null });
@@ -665,12 +676,13 @@ export function drawForTurn(sid, uid) {
         ctx.log(`"${c.title}" lets ${ctx.name(uid)} draw ${fx.extraDraw} extra card${fx.extraDraw === 1 ? '' : 's'}.`);
       });
     });
-    // Awakened "AGILITY!": +1 draw per face-up "Nail" card (Freeze/Frostbite limits below still apply)
-    if (incantationsWith(game, uid, 'draw-per-nail').length) {
+    // Incantation "Turn 2" (MEENOS!): +1 draw per face-up "Nail" card (Freeze/Frostbite limits below still apply)
+    const agility = incantationsWith(game, uid, 'draw-per-nail')[0]?.card;
+    if (agility) {
       const nails = nailCardsInPlay(game, uid).length;
       if (nails) {
         n += nails;
-        ctx.log(`"AGILITY!" lets ${ctx.name(uid)} draw ${nails} extra card${nails === 1 ? '' : 's'}.`);
+        ctx.log(`"${agility.title}" lets ${ctx.name(uid)} draw ${nails} extra card${nails === 1 ? '' : 's'}.`);
       }
     }
     if (s.frostbite) {
@@ -684,8 +696,32 @@ export function drawForTurn(sid, uid) {
       const drawn = drawCards(ctx, n);
       ctx.log(drawn ? `${ctx.name(uid)} drew ${drawn} card${drawn === 1 ? '' : 's'}.` : `${ctx.name(uid)} has no cards left to draw.`);
     }
+    // Incantation "Turn 2" (Maxees!): search the deck for any 1 card this turn (see pickFromDeck)
+    const search = incantationsWith(game, uid, 'deck-pick')[0]?.card;
+    if (search && ctx.hand.deck.length) {
+      game.players[uid].deckPick = { source: search.title, turnNo: game.turnNo };
+      ctx.log(`"${search.title}": ${ctx.name(uid)} may search their deck for 1 card.`);
+    }
     game.phase = 'equip';
     ctx.log(`${ctx.name(uid)}'s Equip phase.`, 'phase');
+  }, { withHand: true });
+}
+
+// Takes the chosen card (by instance id) from uid's deck into their hand and reshuffles. iid null = skip.
+export function pickFromDeck(sid, uid, iid) {
+  return act(sid, uid, (ctx) => {
+    const p = ctx.game.players[uid];
+    const pick = p.deckPick;
+    if (!pick || pick.turnNo !== ctx.game.turnNo) fail('There is no deck search to make.');
+    delete p.deckPick;
+    if (!iid) {
+      ctx.log(`${ctx.name(uid)} skips the "${pick.source}" search.`);
+      return;
+    }
+    const card = ctx.hand.deck.find((c) => c.iid === iid) || fail('That card is no longer in your deck.');
+    ctx.hand.deck = shuffle(ctx.hand.deck.filter((c) => c !== card));
+    ctx.hand.hand.push(card);
+    ctx.log(`"${pick.source}": ${ctx.name(uid)} searches their deck, takes a card and reshuffles.`);
   }, { withHand: true });
 }
 
@@ -739,7 +775,7 @@ export function declareAttack(sid, uid, source, target) {
         c.usedTurn = game.turnNo;
         const n = effectOf(c).refundOnPaidAttack;
         game.players[uid].soul = (game.players[uid].soul || 0) + n;
-        ctx.log(`"${c.title}" refunds ${n} SOUL to ${ctx.name(uid)}.`);
+        ctx.log(`"${c.title}" refunds ${n} ${resourceLabel(game, uid)} to ${ctx.name(uid)}.`);
       });
     }
     game.attack = {
@@ -758,6 +794,17 @@ export function declareAttack(sid, uid, source, target) {
     game.clash = { by: uid, defender, attackCard: card, counterCard: null };
     ctx.log(`${ctx.name(uid)} attacks ${targetLabel(ctx, defender, target)} with "${card.title}" for ${breakdown.total} damage!`, 'attack');
     if (breakdown.parts.length) ctx.log(`"${card.title}" damage: ${breakdownText(breakdown)}.`, 'attack');
+
+    // Incantation "Turn 3" (MEENOS!): every attack declared also deals unblockable damage
+    incantationsWith(game, uid, 'strike-chip').forEach((e) => {
+      damagePlayer(ctx, defender, e.fx.amount, `"${e.card.title}" (unblockable)`);
+    });
+    if (checkDefeat(ctx)) {
+      if (!fromLatent) pushDiscard(ctx, uid, card);
+      game.attack = null;
+      game.clash = null;
+      return;
+    }
 
     const fx = effectOf(card);
     if (fx.onDeclare === 'lunge-search') {
@@ -930,31 +977,38 @@ const EFFECTS = {
   // Defend: if the attack is bigger than what it blocks, you take 30 instead and discard a random card.
   'Diamond Carapace': { overflow: { take: 30, discard: 1 } },
 
-  // Incantations: their effects switch on once all MAX_INCANTATIONS are set ("awakened") and last for the
-  // rest of the game. Incantations can't be targeted or discarded, so nothing ends them early.
-  // AGILITY!: draw extra cards in your draw phase equal to your face-up "Nail" cards in play.
-  'AGILITY!': { incantation: 'draw-per-nail' },
-  // Maxees!: every card you play costs 1 less SOUL.
-  'Maxees!': { incantation: 'cost-discount', amount: 1 },
-  // STRENGTH!: every attack you declare deals 40 more damage.
-  'STRENGTH!': { incantation: 'attack-boost', amount: 40 },
-  // MEENOS!: you keep cards you'd be forced to discard from your hand (by card effects).
-  'MEENOS!': { incantation: 'retain-hand' },
+  // Incantations power up over your turns: at the end of the turn you play one, its "Turn 1" effect turns on;
+  // at the end of each of your next turns the next tier turns on (3 full turns for all of them). Tiers that are on
+  // stay on for the rest of the game, unless a card says otherwise. Incantations can't be targeted.
+  'MEENOS! Grant Me Agility!': {
+    incantationTiers: [
+      { kind: 'retain-hand', text: "Card effects and Stun can't make you discard from your hand" },
+      { kind: 'draw-per-nail', text: 'Draw +1 card per "Nail" card in play each draw phase' },
+      { kind: 'strike-chip', amount: 10, text: 'Every attack you declare also deals 10 unblockable damage' },
+    ],
+  },
+  'Maxees! Grant me Strength!': {
+    incantationTiers: [
+      { kind: 'cost-discount', amount: 1, text: 'Every card you play costs 1 less' },
+      { kind: 'deck-pick', text: 'Each draw phase, search your deck for 1 card' },
+      { kind: 'attack-boost', amount: 40, text: 'Attacks you declare deal +40 damage' },
+    ],
+  },
 };
 
-// uid's Incantations, but only once all of them are set (until then they're dormant).
-export function awakenedIncantations(game, uid) {
+// Every tier of uid's Incantations: { card, fx, tier (1-based), active }. card.tier = how many tiers are on.
+export function incantationTiers(game, uid) {
   const list = game?.board?.[uid]?.incantation || [];
-  return list.length >= MAX_INCANTATIONS ? list : [];
+  return list.flatMap((c) => (effectOf(c).incantationTiers || []).map((fx, i) => ({ card: c, fx, tier: i + 1, active: i < (c.tier || 0) })));
 }
-// The awakened Incantations of uid with the given effect.
-const incantationsWith = (game, uid, kind) => awakenedIncantations(game, uid).filter((c) => effectOf(c).incantation === kind);
-// A card effect forces uid to discard `n` random cards from their hand. Awakened "MEENOS!" prevents it.
+// uid's active Incantation tiers with the given effect.
+const incantationsWith = (game, uid, kind) => incantationTiers(game, uid).filter((e) => e.active && e.fx.kind === kind);
+// A card effect forces uid to discard `n` random cards from their hand. An active MEENOS! tier (Turn 1) prevents it.
 // Hands are private, so if uid isn't the one acting, the discard is queued and uid's client carries it out.
 // opts.chooser: that player picks which of uid's face-down hand cards go (see pickOpponentCards).
 function forceHandDiscard(ctx, uid, n, source, { chooser } = {}) {
   if (n <= 0) return;
-  const meenos = incantationsWith(ctx.game, uid, 'retain-hand')[0];
+  const meenos = incantationsWith(ctx.game, uid, 'retain-hand')[0]?.card;
   if (meenos) {
     ctx.log(`"${meenos.title}" lets ${ctx.name(uid)} keep the card${n === 1 ? '' : 's'} "${source}" would discard.`, 'counter');
     return;
@@ -1040,8 +1094,8 @@ export function resolvePendingDiscards(sid, uid) {
     p.pendingDiscard = 0;
     delete p.pendingDiscardPicks;
     delete p.pendingDiscardSource;
-    // Re-check MEENOS! in case it awakened in the meantime
-    const meenos = incantationsWith(ctx.game, uid, 'retain-hand')[0];
+    // Re-check MEENOS! in case it turned on in the meantime
+    const meenos = incantationsWith(ctx.game, uid, 'retain-hand')[0]?.card;
     if (meenos) {
       ctx.log(`"${meenos.title}" lets ${ctx.name(uid)} keep the cards "${source}" would discard.`, 'counter');
       return;
@@ -1074,7 +1128,7 @@ export function pickOpponentCards(sid, uid, positions) {
     game.pendingPick = null;
   });
 }
-const incantationTotal = (game, uid, kind) => incantationsWith(game, uid, kind).reduce((s, c) => s + (effectOf(c).amount || 0), 0);
+const incantationTotal = (game, uid, kind) => incantationsWith(game, uid, kind).reduce((sum, e) => sum + (e.fx.amount || 0), 0);
 
 // Face-up cards on uid's board whose name contains "Nail" ("Nail", "Flatside Nail", ...).
 const isNailCard = (c) => /\bnail\b/i.test(c?.title || '');
@@ -1131,7 +1185,7 @@ export function attackBreakdown(game, uid, card, target = null) {
     if (n) parts.push({ label: `${n} "Nail" card${n === 1 ? '' : 's'} in play`, amount: bonus.amount * n });
   }
   parts.push(...damageBonusParts(game, uid, target));
-  incantationsWith(game, uid, 'attack-boost').forEach((c) => parts.push({ label: c.title, amount: effectOf(c).amount }));
+  incantationsWith(game, uid, 'attack-boost').forEach((e) => parts.push({ label: e.card.title, amount: e.fx.amount }));
   return { base, parts, total: parts.reduce((s, p) => s + p.amount, base) };
 }
 export const breakdownText = ({ base, parts, total }) =>
@@ -1445,7 +1499,7 @@ function resolveAttack(ctx, counter) {
     faceUpWith(game, a.by, 'refundOnBlocked').forEach((c) => {
       const n = effectOf(c).refundOnBlocked;
       game.players[a.by].soul = (game.players[a.by].soul || 0) + n;
-      ctx.log(`"${c.title}" refunds ${n} SOUL to ${ctx.name(a.by)}.`);
+      ctx.log(`"${c.title}" refunds ${n} ${resourceLabel(game, a.by)} to ${ctx.name(a.by)}.`);
     });
   } else if (a.target.kind === 'player') {
     applyDirectDamage(ctx, def, net);
@@ -1504,3 +1558,104 @@ export function detonateStatus(sid, uid, statusId) {
 }
 
 export { LATENT_ZONES };
+
+// ---------- Active effects (for the "what's affecting me" indicator) ----------
+// Everything currently buffing or hindering uid, in plain words:
+//   [{ id, kind: 'buff' | 'hinder' | 'pending' | 'idle', source, text }]
+// 'pending' = something that turns on later (e.g. an Incantation tier); 'idle' = in play but not active right now.
+export function activeEffectsFor(game, uid) {
+  if (!game?.players?.[uid]) return [];
+  const out = [];
+  const add = (kind, source, text, key = `${source}|${text}`) => out.push({ id: key, kind, source, text });
+  const opp = opponentOf(game, uid);
+  const res = resourceOf(playerToken(game.players[uid])).label;
+  const nails = nailCardsInPlay(game, uid).length;
+  const oppStatus = opp ? statusOf(game, opp) : {};
+
+  // Your face-up cards
+  faceUpCards(game, uid).forEach((c) => {
+    const fx = effectOf(c);
+    if (fx.latentPassive === 'attack-discount') add('buff', c.title, `Attacks cost ${fx.amount} less ${res}`, `${c.iid}|disc`);
+    if (fx.latentPassive === 'defend-boost') add('buff', c.title, `Defend cards block +${fx.amount}`, `${c.iid}|def`);
+    if (fx.latentAuto === 'strike-damage') add('buff', c.title, `Strikes for ${summonPower(game, uid, c)} at the start of your STRIKE!`, `${c.iid}|strike`);
+    if (fx.latentAuto === 'reduce-incoming') add('buff', c.title, `Reduces incoming attacks by ${summonPower(game, uid, c)}`, `${c.iid}|reduce`);
+    if (fx.detonate && c.revealed) add('buff', c.title, `Can Detonate for ${fx.detonate.direct} direct damage`, `${c.iid}|det`);
+    if (fx.onDamageSearch) add('buff', c.title, 'Damaging attacks fetch a "Nail" card', `${c.iid}|search`);
+    if (fx.directBonus) {
+      add(nails ? 'buff' : 'idle', c.title, nails ? `Direct damage +${fx.directBonus}` : `Direct damage +${fx.directBonus} (needs a face-up "Nail")`, `${c.iid}|skewer`);
+    }
+    if (fx.refundOnPaidAttack) {
+      const used = c.usedTurn === game.turnNo;
+      add(used ? 'idle' : 'buff', c.title, used ? 'Refund used this turn' : `Your first paid attack refunds ${fx.refundOnPaidAttack} ${res}`, `${c.iid}|refund`);
+    }
+    if (fx.drawOnOpponentDraw) add('buff', c.title, 'Draw a card when your opponent draws (once per turn)', `${c.iid}|hunt`);
+    if (fx.refundOnBlocked) add('buff', c.title, `Fully blocked attacks refund ${fx.refundOnBlocked} ${res}`, `${c.iid}|wind`);
+    if (fx.purgeBonus) {
+      const on = oppStatus.purge > 0;
+      add(on ? 'buff' : 'idle', c.title, on ? `Damage +${fx.purgeBonus} (opponent has Purge)` : `Damage +${fx.purgeBonus} while your opponent has Purge`, `${c.iid}|purr`);
+    }
+    if (fx.ignoreArmor) add('buff', c.title, 'Your direct damage ignores enemy Body Armor', `${c.iid}|paws`);
+    if (fx.extraDraw && fx.drawFor === 'owner') add('buff', c.title, `Draw +${fx.extraDraw} each draw phase`, `${c.iid}|draw`);
+    if (fx.regenArmorAfter) add('pending', c.title, `Restores your Armor Set in ${Math.max(0, fx.regenArmorAfter - (c.turnsActive || 0))} turn(s)`, `${c.iid}|regen`);
+    if (fx.allDamageBonus && c.damage > 0) add('buff', c.title, `All your damage +${c.damage}`, `${c.iid}|all`);
+    if (fx.directReduce && c.block > 0) add('buff', c.title, `Reduces direct damage by ${c.block}`, `${c.iid}|dr`);
+    if (fx.chain) add('hinder', c.title, `You can't play "${fx.chain.removes}"`, `${c.iid}|lock`);
+    if (fx.cardTargetBonus) {
+      const inty = faceUpCards(game, uid).filter((x) => /inty/i.test(x.title)).length;
+      add('buff', c.title, `+${fx.cardTargetBonus.amount + fx.cardTargetBonus.perInty * inty} damage when attacking cards`, `${c.iid}|rend`);
+    }
+    if (fx.summonBoost) add('buff', c.title, `Summon Inty / Summon Illy! +${fx.summonBoost}`, `${c.iid}|wand`);
+    if (c.cardType === 'Body Armor') {
+      const block = (c.block || 0) + (fx.blockGrowsWithDamage ? Math.max(0, (c.baseHealth ?? c.health) - c.health) : 0);
+      if (block > 0) add('buff', c.title, `Reduces direct damage by ${block}${c.health > 0 ? ` (${c.health} health)` : ''}`, `${c.iid}|armor`);
+    }
+    if (c.cardType === 'Shield') {
+      if (fx.shieldRoll) {
+        const used = c.usedTurn === game.turnNo;
+        add(used ? 'idle' : 'buff', c.title, used ? 'Roll used this turn' : `Direct damage: roll (even -${fx.shieldRoll.even}, odd nullify)`, `${c.iid}|shield`);
+      } else if (c.health > 0) {
+        add('buff', c.title, `Absorbs direct damage (${c.health} health)`, `${c.iid}|shield`);
+      }
+    }
+  });
+  // Cards that help everyone (e.g. Tilled Earth), on either side
+  Object.keys(game.players).forEach((owner) => faceUpWith(game, owner, 'extraDraw').forEach((c) => {
+    if (effectOf(c).drawFor === 'everyone') add('buff', c.title, `Draw +${effectOf(c).extraDraw} each draw phase (both players)`, `${c.iid}|everyone`);
+  }));
+
+  // Your Incantation: tiers that are on, and the ones still to come
+  incantationTiers(game, uid).forEach((e) => {
+    const left = e.tier - (e.card.tier || 0); // 1 = turns on at the end of your current/next turn
+    const when = left === 1 ? 'the end of your turn' : `${left} of your turns from now`;
+    add(e.active ? 'buff' : 'pending', `${e.card.title} · Turn ${e.tier}`, e.active ? e.fx.text : `${e.fx.text} (turns on at ${when})`, `${e.card.iid}|t${e.tier}`);
+  });
+  const pick = game.players[uid].deckPick;
+  if (pick?.turnNo === game.turnNo) add('buff', pick.source, 'Deck search ready this turn', 'deckpick');
+
+  // Statuses on you
+  const s = statusOf(game, uid);
+  if (s.burn > 0) add('hinder', 'Burn', `Take ${s.burn * STATUS_DAMAGE_PER_STACK} damage at the start of your turn (x${s.burn})`, 'st|burn');
+  if (s.purge > 0) add('hinder', 'Purge', `Take ${s.purge * STATUS_DAMAGE_PER_STACK} damage at the start of your turn (x${s.purge})`, 'st|purge');
+  if (s.frostbite) add('hinder', 'Frostbite', "You can't draw this turn", 'st|frostbite');
+  else if (s.freeze > 0) add('hinder', 'Freeze', `Draws limited to ${FREEZE_DRAW_LIMIT} (x${s.freeze})`, 'st|freeze');
+  if (s.stun) {
+    const gravity = Object.keys(game.players).reduce((n, u) => n + faceUpWith(game, u, 'stunExtraDiscard').length, 0);
+    add('hinder', 'Stun', `Roll at the start of your turn: even loses ${1 + gravity} card${gravity ? 's' : ''}`, 'st|stun');
+  }
+
+  // Opponent cards working against you
+  if (opp) {
+    faceUpCards(game, opp).forEach((c) => {
+      const fx = effectOf(c);
+      if (fx.ignoreArmor) add('hinder', c.title, 'Enemy direct damage ignores your Body Armor', `${c.iid}|opp`);
+      if (fx.latentAuto === 'reduce-incoming') add('hinder', c.title, `Enemy reduces your attacks by ${summonPower(game, opp, c)}`, `${c.iid}|opp`);
+      if (fx.latentAuto === 'strike-damage') add('hinder', c.title, `Enemy strikes you for ${summonPower(game, opp, c)} each of their turns`, `${c.iid}|opp`);
+      if (fx.directReduce && c.block > 0) add('hinder', c.title, `Enemy reduces your direct damage by ${c.block}`, `${c.iid}|opp`);
+      if (fx.drawOnOpponentDraw) add('hinder', c.title, 'Your opponent draws when you draw', `${c.iid}|opp`);
+      if (fx.stunExtraDiscard) add('hinder', c.title, 'Stun costs 1 extra card', `${c.iid}|opp`);
+    });
+    incantationTiers(game, opp).filter((e) => e.active && e.fx.kind === 'strike-chip')
+      .forEach((e) => add('hinder', e.card.title, `Enemy attacks also deal ${e.fx.amount} unblockable damage`, `${e.card.iid}|chip`));
+  }
+  return out;
+}

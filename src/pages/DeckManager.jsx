@@ -6,6 +6,7 @@ import {
 } from '../firebase/db.js';
 import useDecks, { MY_CARDS_SET_ID } from '../hooks/useDecks.js';
 import { STARTER_DECKS } from '../data/cardSets.js';
+import { tokenLabel } from '../game/tokens.js';
 import {
   COPY_LIMITS, BODY_ARMOR_PER_DECK, DECK_SIZE_LIMIT, TYPE_TOTAL_LIMITS, copyLimitFor, limitLabel, maxCopiesInDeck,
 } from '../game/deckRules.js';
@@ -334,7 +335,7 @@ function CardSetsTab({ uid, sets }) {
         </div>
         <div className="deck-badges">
           {set.builtIn ? <span className="badge lock">Built-in · Read-only</span> : <span className="badge">Your custom cards</span>}
-          {set.aetherType && <span className="badge">{set.aetherType}/{set.idolType}</span>}
+          {set.token && <span className="badge">{tokenLabel(set.token)}</span>}
         </div>
       </div>
 
